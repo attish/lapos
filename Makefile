@@ -7,10 +7,10 @@ LD=ld
 LDFLAGS=-T linker.ld
 QEMU=qemu-system-i386
 
+all: kernel
+
 run: kernel
 	$(QEMU) -kernel $<
-
-all: kernel
 
 kernel: kernel.o loader.o
 	$(LD) $(LDFLAGS) -o $@ $^
