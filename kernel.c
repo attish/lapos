@@ -109,9 +109,7 @@ void build_identity_mapping() {
         pde.writable = 1;
         pde.supervisor = 1;
         int address = (int)&(page_tables[current_pagetable_set][curr_entry]);
-        //kputx(address); NL;
         pde.page_table = address >> 12;
-        //kputb(pde.value); NL;
         page_directory[current_pagetable_set][curr_entry] = pde;
     }
 
@@ -125,48 +123,81 @@ void build_identity_mapping() {
         page_tables[current_pagetable_set][pde][pte] =
             map_page_to_target(memory);
     }
-    kputs("map 0x0 == ");
-    kputx(map_page_to_target(0x0).value); NL;
-
-
-    // 0x12345678
-    // pde = 72, pte = 837
-    PRINT(page_directory[current_pagetable_set][72].value)
-    PRINT((int)page_tables[current_pagetable_set][72])
-    PRINT(page_tables[current_pagetable_set][72][837].value)
 
     kputs("Page tables filled."); NL;
 }
 
-void build_pagetables(int32 mapping_count, mem_mapping *map,
-                      int identity_mapping) {
+void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // TODO use kmalloc when it is done
-    mem_mapping *curr_mapping;
-
     current_pagetable_set = !current_pagetable_set;
 
-    // TODO zero out page_directory and page_tables
-    // TODO setting up page_directory does not depend on the mapping, so it
-    //      can be done here
-    if (identity_mapping)
-    {
-        // if identity mapping is set, initialize tables for identity mapping,
-        // then add the requested modifications here
+    // Debug
+    int32 stat_identity = 0;
+    int32 stat_null = 0;
+    int32 stat_mapped = 0;
+
+    // create generic page directory
+    // TODO factor out
+    int curr_entry;
+    for (curr_entry = 0; curr_entry < 1024; curr_entry++) {
+        page_directory_entry_t pde;
+        pde.value = 0;
+        pde.present = 1;
+        pde.writable = 1;
+        pde.supervisor = 1;
+        int address = (int)&(page_tables[current_pagetable_set][curr_entry]);
+        pde.page_table = address >> 12;
+        page_directory[current_pagetable_set][curr_entry] = pde;
     }
 
-    for (curr_mapping = map; curr_mapping < (map + mapping_count); map++)
-    {
-        //unsigned int curr_source_start = curr_mapping->source_start;
-        // TODO check start alignment
-        // TODO find appropriate first page_table and the correct entry in it
+    kputs("Page directory filled."); NL;
+    
+    int32 memory = 0;
+    int32 end;  // The last page to map in this iteration
+    mem_mapping *curr_mapping = map;
+    while (1) {
+        if (curr_mapping < map + mapping_count)
+            end = map->source_start - 1;
+        else
+            end = 0xfffff000; // hope I got it right
+        while (memory < end) {
+            int32 pde = (memory & 0xffc00000) >> 22;
+            int32 pte = (memory & 0x003ff000) >> 12;
+            if (identity) {
+                stat_identity++;
+                page_tables[current_pagetable_set][pde][pte] =
+                    map_page_to_target(memory);
+            } else {
+                stat_null++;
+                page_tables[current_pagetable_set][pde][pte] =
+                    null_map_page();
+            }
+            if (memory == 0xfffff000) break;
+            memory += 4096;
+        }
+        int32 target = map->target_start;
+        while (memory <= map->source_end) {
+            int32 pde = (memory & 0xffc00000) >> 22;
+            int32 pte = (memory & 0x003ff000) >> 12;
+            stat_mapped++;
+            page_tables[current_pagetable_set][pde][pte] =
+                map_page_to_target(target);
+            if (memory == 0xfffff000) break;
+            memory += 4096;
+            target += 4096;
+        }
+        if (memory == 0xfffff000) break;
+        curr_mapping++;
     }
+    kputs("Page tables ready."); NL;
+    kputs("Null mappings: "); kputx(stat_null); NL;
+    kputs("Identity mappings: "); kputx(stat_identity); NL;
+    kputs("Specified mappings: "); kputx(stat_mapped); NL;
 }
 
 void enable_paging() {
     kputs("Loading CR3..."); NL;
-    //moves page_directory (which is a pointer) into the cr3 register.
     asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
-    //reads cr0, switches the "paging enable" bit, and writes it back.
     unsigned int cr0;
     asm volatile("mov %%cr0, %0": "=b"(cr0));
     cr0 |= 0x80000000;
@@ -314,9 +345,19 @@ void kmain(void) {
     kputx(VERSION_NUMBER);
     kputs("\n\n");
     
-//    build_pagetables(0, NULL, 0);
-    build_identity_mapping();
+    mem_mapping mapping[1] = {
+        {
+            0xc0000000,
+            0xc0001000,
+            0x000b8000
+        }
+    };
+
+    build_pagetables(1, mapping, 1);
+    //build_identity_mapping();
     enable_paging();
     kputs("Paging enabled.\n");
+    char *testvideo = (char *) 0xc0000000;
+    testvideo[0] = 1;
 }
 
