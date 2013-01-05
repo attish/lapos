@@ -1,6 +1,12 @@
+// vi:cin:sw=4 ts=4:foldmethod=marker:foldmarker={{{,}}}
+
+// Includes {{{
+
 #include <stdint.h>
 
-// Constants {
+// }}}
+
+// Constants {{{
 
 #define VERSION_NUMBER 0x0
 #define NULL (void *) 0x0
@@ -9,9 +15,9 @@
 #define NL kputch('\n')
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
 
-// }
+// }}}
 
-// Type definitions {
+// Type definitions {{{
 
 typedef unsigned int int32;
 typedef unsigned int bit; // for bitfields
@@ -56,24 +62,25 @@ typedef union {
     int32 value;
 } page_table_entry_t;
 
-// }
+// }}}
 
-// Function declarations {
+// Function declarations {{{
+
 void kputch(char);
 void kputs(char *);
 void kputx(int);
 void kputb(int);
-// }
 
-// Global variables {
+// }}}
+
+// Global variables {{{
+
 int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
 
 unsigned int cursor_x = 0;
 unsigned int cursor_y = 0;
-
-// }
 
 page_table_entry_t null_map_page() {
     // TODO check page alignment
@@ -95,6 +102,10 @@ page_table_entry_t map_page_to_target(int32 target) {
     pte.page_address = target >> 12;
     return pte;
 }
+
+// }}}
+
+// Function definitions {{{
 
 void build_identity_mapping() {
     current_pagetable_set = !current_pagetable_set;
@@ -287,8 +298,7 @@ void kputs(char *s) {
         kputch(*s);
 }
 
-//void kputd(int d) {
-//}
+// TODO kputd
 
 void kputx(int d) {
     // always 32 bit for now
@@ -320,31 +330,29 @@ void kputb(int d) {
     }
 }
 
+// }}}
+
+// Main entry point {{{
+
 void kmain(void) {
     extern uint32_t magic;
  
     // The multiboot header
     //extern void *mbd;
-    if ( magic != 0x2BADB002 )
+    if (magic != 0x2BADB002)
     {
-        /* Something went not according to specs. Print an error */
-        /* message and halt, but do *not* rely on the multiboot */
-        /* data structure. */
         kputs("Multiboot magic number mismatch! Freezing.");
-        while (1);
+        for (;;);
     }
- 
-   /* You could either use multiboot.h */
-   /* (http://www.gnu.org/software/grub/manual/multiboot/multiboot.html#multiboot_002eh) */
-   /* or do your offsets yourself. The following is merely an example. */ 
-    // char *boot_loader_name =(char*) ((long*)mbd)[16];
+    // TODO use Multiboot header fields
+    //char *boot_loader_name =(char*) ((long*)mbd)[16];
 
     update_cursorpos_from_vga();
 
     kputs("LapOS v");
     kputx(VERSION_NUMBER);
     kputs("\n\n");
-    
+
     mem_mapping mapping[1] = {
         {
             0xc0000000,
@@ -361,3 +369,4 @@ void kmain(void) {
     testvideo[0] = 1;
 }
 
+// }}}
