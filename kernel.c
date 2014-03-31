@@ -168,7 +168,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     mem_mapping *curr_mapping = map;
     while (1) {
         if (curr_mapping < map + mapping_count)
-            end = map->source_start - 1;
+            end = curr_mapping->source_start - 1;
         else
             end = 0xfffff000; // hope I got it right
         while (memory < end) {
@@ -186,8 +186,8 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
             if (memory == 0xfffff000) break;
             memory += 4096;
         }
-        int32 target = map->target_start;
-        while (memory <= map->source_end) {
+        int32 target = curr_mapping->target_start;
+        while (memory <= curr_mapping->source_end) {
             int32 pde = (memory & 0xffc00000) >> 22;
             int32 pte = (memory & 0x003ff000) >> 12;
             stat_mapped++;
@@ -353,20 +353,27 @@ void kmain(void) {
     kputx(VERSION_NUMBER);
     kputs("\n\n");
 
-    mem_mapping mapping[1] = {
+    mem_mapping mapping[] = {
         {
             0xc0000000,
             0xc0001000,
             0x000b8000
+        },
+        {
+            0xd0000000,
+            0xd0001000,
+            0x000b8000
         }
     };
 
-    build_pagetables(1, mapping, 1);
+    build_pagetables(2, mapping, 1);
     //build_identity_mapping();
     enable_paging();
     kputs("Paging enabled.\n");
     char *testvideo = (char *) 0xc0000000;
     testvideo[0] = 1;
+    testvideo = (char *) 0xd0000000;
+    testvideo[2] = 2;
 }
 
 // }}}
