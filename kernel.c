@@ -68,8 +68,9 @@ typedef union {
 
 void kputch(char);
 void kputs(char *);
-void kputx(int);
-void kputb(int);
+void kputx(unsigned int);
+void kputb(unsigned int);
+void kputd(unsigned int);
 
 // }}}
 
@@ -298,9 +299,26 @@ void kputs(char *s) {
         kputch(*s);
 }
 
-// TODO kputd
+void kputd(unsigned int d) {
+    // The only thing this function aims to do is the simplest
+    // possible way of displaying an unsigned decimal integer, without
+    // any leading zeros, alignment etc.
 
-void kputx(int d) {
+    char *decdigits = "0123456789";
+    int d_place = 1000000000;
+    int leading_zero = 1;
+
+    while (d_place) {
+        int digit = d / d_place;
+        if (digit || !leading_zero || (d_place == 1))
+            kputch(decdigits[d / d_place]);
+        if (digit) leading_zero = 0;
+        d %= d_place;
+        d_place /= 10;
+    }
+}
+
+void kputx(unsigned int d) {
     // always 32 bit for now
     char *hexdigits = "0123456789abcdef";
     int current = d;
@@ -315,7 +333,7 @@ void kputx(int d) {
     }
 }
 
-void kputb(int d) {
+void kputb(unsigned int d) {
     // always 32 bit for now
     char *bindigits = "01";
     int current = d;
@@ -350,7 +368,7 @@ void kmain(void) {
     update_cursorpos_from_vga();
 
     kputs("LapOS v");
-    kputx(VERSION_NUMBER);
+    kputd(VERSION_NUMBER);
     kputs("\n\n");
 
     mem_mapping mapping[] = {
