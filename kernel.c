@@ -71,6 +71,7 @@ void kputs(char *);
 void kputx(unsigned int);
 void kputb(unsigned int);
 void kputd(unsigned int);
+void kputh(unsigned int);
 
 // }}}
 
@@ -316,6 +317,22 @@ void kputd(unsigned int d) {
         d %= d_place;
         d_place /= 10;
     }
+}
+
+void kputh(unsigned int d) {
+    // "Human" printing. This is what some Unix commands do on the
+    // '-h' switch. Eg. 16400 -> "16k"
+
+    char postfix[] = "GMk "; // 0: G, 1: M, 2: k, 3: none
+    int magnitude = 0;
+
+    for (magnitude = 0; magnitude < 4; magnitude++) {
+        if (d >= 1U<<(30 - 10 * magnitude))
+            break;
+    }
+
+    kputd(d / (1U<<(30 - 10 * magnitude)));
+    kputch(postfix[magnitude]);
 }
 
 void kputx(unsigned int d) {
