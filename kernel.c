@@ -22,6 +22,16 @@
 typedef unsigned int int32;
 typedef unsigned int bit; // for bitfields
 
+typedef struct multiboot_info {
+    unsigned long flags;
+    unsigned long mem_lower;
+    unsigned long mem_upper;
+    unsigned long boot_device;
+    unsigned long cmdline;
+    unsigned long mods_count;
+    unsigned long mods_addr;
+} multiboot_info_t;
+
 typedef struct {
     int32 source_start;
     int32 source_end;
@@ -371,22 +381,22 @@ void kputb(unsigned int d) {
 
 void kmain(void) {
     extern uint32_t magic;
- 
-    // The multiboot header
-    //extern void *mbd;
+    extern multiboot_info_t *mbi; // The multiboot header
+
     if (magic != 0x2BADB002)
     {
         kputs("Multiboot magic number mismatch! Freezing.");
         for (;;);
     }
-    // TODO use Multiboot header fields
-    //char *boot_loader_name =(char*) ((long*)mbd)[16];
 
     update_cursorpos_from_vga();
 
     kputs("LapOS v");
     kputd(VERSION_NUMBER);
     kputs("\n\n");
+
+    kputs("Memory size: ");
+    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
 
     mem_mapping mapping[] = {
         {
