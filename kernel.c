@@ -95,6 +95,9 @@ void  kputb(unsigned int);
 void  kputd(unsigned int);
 void  kputh(unsigned int);
 void *kmalloc(unsigned int);
+int   kfree(void *);
+void  walk_heap(memblock_header_t *);
+int   kmem_available();
 
 // }}}
 
@@ -392,7 +395,7 @@ void kputb(unsigned int d) {
     }
 }
 
-int32 kmalloc_block_size(memblock_header_t *header) {
+int32 kmem_block_size(memblock_header_t *header) {
     if (!header->next_header)
         // There is a slight trick here: this should be
         // (max_address + 1 - header) / 4096 - 1; however adding that 1 always
@@ -412,7 +415,7 @@ void *kmalloc(unsigned int pages) {
 
     while (current_header) {
         if (current_header->free) {
-            size = kmalloc_block_size(current_header);
+            size = kmem_block_size(current_header);
             kputs("Found free block, size: "); kputd(size); NL;
             if (pages <= size)
                 break;
@@ -489,13 +492,28 @@ void walk_heap(memblock_header_t *start) {
         kputs("prev: "); kputx((int32)current_header->prev_header);
         kputs(" block: "); kputx((int32)current_header);
         kputs(" next: "); kputx((int32)current_header->next_header);
-        kputs(" size: "); kputd(kmalloc_block_size(current_header)); 
-        kputs(" ("); kputh(kmalloc_block_size(current_header) * 4096); 
+        kputs(" size: "); kputd(kmem_block_size(current_header)); 
+        kputs(" ("); kputh(kmem_block_size(current_header) * 4096); 
         kputs(") free: "); kputd((int32)current_header->free);
         NL;
 
         current_header = current_header->next_header;
     }
+}
+
+int kmem_available() {
+    // Return amount of memory left to the kernel in blocks
+    // (not the largest continuous block!)
+    int count = 0;
+    memblock_header_t *current_header = first_header;
+
+    while (current_header) {
+        if (current_header->free)
+            count += kmem_block_size(current_header);
+        current_header = current_header->next_header;
+    }
+
+    return count;
 }
 
 // }}}
@@ -606,6 +624,12 @@ void kmain(void) {
     testvideo[2] = 2;
 
     first_header = (memblock_header_t *) &first_memblock;
+    max_address = (mbi->mem_upper + 1024) * 1024 - 1;
+
+    kputs("Kernel memory free: ");
+    int freemem = kmem_available();
+    kputh(freemem * 4096);
+    kputs(" ("); kputd(freemem); kputs(" pages)"); NL;
 }
 
 // }}}
