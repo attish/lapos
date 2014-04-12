@@ -6,7 +6,7 @@
 
 // }}}
 
-// Constants {{{
+// Constants and macros {{{
 
 #define VERSION_NUMBER 0x0
 #define NULL (void *) 0x0
@@ -14,13 +14,27 @@
 #define VGA_ROWS 25
 #define NL kputch('\n')
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
+#define PRINTD(X)   kputs((#X)); kputs(" == "); kputd((X)); NL; 
+#define PRINTPTR(X) kputs((#X)); kputs(" == "); kputx((int32)(X)); NL; 
+#define IGNORE_UNUSED(X)   (X) = (X);
 
 // }}}
 
 // Type definitions {{{
 
 typedef unsigned int int32;
+typedef unsigned int bool;
 typedef unsigned int bit; // for bitfields
+
+typedef struct multiboot_info {
+    unsigned long flags;
+    unsigned long mem_lower;
+    unsigned long mem_upper;
+    unsigned long boot_device;
+    unsigned long cmdline;
+    unsigned long mods_count;
+    unsigned long mods_addr;
+} multiboot_info_t;
 
 typedef struct {
     int32 source_start;
@@ -62,16 +76,25 @@ typedef union {
     int32 value;
 } page_table_entry_t;
 
+typedef struct memblock_header_s memblock_header_t;
+
+struct memblock_header_s {
+    memblock_header_t *prev_header;
+    memblock_header_t *next_header;
+    bool free;
+};
+
 // }}}
 
 // Function declarations {{{
 
-void kputch(char);
-void kputs(char *);
-void kputx(unsigned int);
-void kputb(unsigned int);
-void kputd(unsigned int);
-void kputh(unsigned int);
+void  kputch(char);
+void  kputs(char *);
+void  kputx(unsigned int);
+void  kputb(unsigned int);
+void  kputd(unsigned int);
+void  kputh(unsigned int);
+void *kmalloc(unsigned int);
 
 // }}}
 
@@ -80,6 +103,10 @@ void kputh(unsigned int);
 int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
+
+memblock_header_t *first_header;
+unsigned int max_address = 0;   // This is the address of the last
+                                // valid byte of memory
 
 unsigned int cursor_x = 0;
 unsigned int cursor_y = 0;
@@ -365,28 +392,196 @@ void kputb(unsigned int d) {
     }
 }
 
+int32 kmalloc_block_size(memblock_header_t *header) {
+    if (!header->next_header)
+        // There is a slight trick here: this should be
+        // (max_address + 1 - header) / 4096 - 1; however adding that 1 always
+        // gives the address of the next page, hence it actually increases the
+        // page count by 1, which is cancelled out by the decrement, which is
+        // a correction for the first page occupied by the header
+        return (max_address - (int32)header) / 4096;
+    return ((int32)header->next_header - (int32)header) / 4096 - 1;
+}
+
+void *kmalloc(unsigned int pages) {
+    // First, find a free block that is large enough
+    memblock_header_t *current_header = first_header;
+    int32 size;
+
+    kputs("kmalloc() called to allocate: "); kputd(pages); NL;
+
+    while (current_header) {
+        if (current_header->free) {
+            size = kmalloc_block_size(current_header);
+            kputs("Found free block, size: "); kputd(size); NL;
+            if (pages <= size)
+                break;
+        }
+        current_header = current_header->next_header;
+    }
+
+    // Should normally reach the end of the loop when out of memory
+    if (!current_header)
+        return NULL;
+
+    kputs("Matching block found. Header at ");
+    kputx((int32)current_header); NL;
+
+    // Is the block size exactly the same as the requested memory?
+    // Or one page larger?
+
+    if (size - pages <= 1) {
+        // If yes, simply mark as used and return
+        kputs("Exact match. Marking block as used and return."); kputx((int32)first_header); NL;
+        current_header->free = 0;
+        return (void*)((int32)current_header + 4096);
+    } else {
+        // Else the block needs to be bisected
+        memblock_header_t *new_header;
+
+
+        new_header = (memblock_header_t*)((int32)current_header +
+                (pages + 1) * 4096);
+        kputs("Bisecting block. ");
+        PRINTPTR(new_header)
+
+        new_header->next_header = current_header->next_header;
+        current_header->next_header = new_header;
+        new_header->prev_header = current_header;
+        current_header->free = 0;
+        new_header->free = 1;
+        //kputs("free_header after creating new block: ");
+        //kputx((int32)first_header); NL;
+    }
+
+    return (void*)((int32)current_header + 4096);
+}
+
+int kfree(void *memory) {
+    // First, we need a pointer to the header
+    memblock_header_t *header = memory - 4096;
+
+    // Freeing a block means marking it as free...
+    header->free = 1;
+
+    // ...and joining it with any neighboring free blocks
+    if (header->prev_header && header->prev_header->free) {
+        kputs("Previous block is free, joining.");
+        header->prev_header->next_header = header->next_header;
+        header->next_header->prev_header = header->prev_header;
+        header = header->prev_header;
+    }
+
+    if (header->next_header && header->next_header->free) {
+        header->next_header = header->next_header->next_header;
+        header->next_header->prev_header = header;
+    }
+
+    // Basically, this function cannot fail -- it can only do nonsense
+    return 1;
+}
+
+
+void walk_heap(memblock_header_t *start) {
+    memblock_header_t *current_header = start;
+    
+    while (current_header) {
+        kputs("prev: "); kputx((int32)current_header->prev_header);
+        kputs(" block: "); kputx((int32)current_header);
+        kputs(" next: "); kputx((int32)current_header->next_header);
+        kputs(" size: "); kputd(kmalloc_block_size(current_header)); 
+        kputs(" ("); kputh(kmalloc_block_size(current_header) * 4096); 
+        kputs(") free: "); kputd((int32)current_header->free);
+        NL;
+
+        current_header = current_header->next_header;
+    }
+}
+
 // }}}
+
+// Tests {{{
+
+void test_kmalloc_1() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
+    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
+    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
+    kputs("Heap after allocation"); NL; walk_heap(first_header);
+    kfree(m2);
+    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
+    kfree(m1);
+    kputs("Heap after freeing 1"); NL; walk_heap(first_header);
+    kfree(m3);
+    kputs("Heap after freeing 3"); NL; walk_heap(first_header);
+}
+
+void test_kmalloc_2() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m0 = kmalloc(1); IGNORE_UNUSED(m0);
+    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
+    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
+    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
+    int *m4 = kmalloc(15); IGNORE_UNUSED(m4);
+    int *m5 = kmalloc(15); IGNORE_UNUSED(m5);
+    int *m6 = kmalloc(15); IGNORE_UNUSED(m6);
+    kputs("Heap after initial allocation"); NL; walk_heap(first_header);
+    kfree(m2);
+    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
+    kfree(m4);
+    kfree(m5);
+    kputs("Heap after freeing 4&5"); NL; walk_heap(first_header);
+    int *m7 = kmalloc(19); IGNORE_UNUSED(m7);
+    kputs("Heap after allocating 19 blocks"); NL; walk_heap(first_header);
+    int *m8 = kmalloc(8); IGNORE_UNUSED(m8);
+    int *m9 = kmalloc(8); IGNORE_UNUSED(m9);
+    kputs("Heap after allocating 2*8 blocks"); NL; walk_heap(first_header);
+    int *m10 = kmalloc(16); IGNORE_UNUSED(m10);
+    kputs("Heap after allocating 16 blocks"); NL; walk_heap(first_header);
+}
+
+void test_kmalloc_3() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m0 = kmalloc(32505); IGNORE_UNUSED(m0);
+    if (!m0) {
+        kputs("Out of memory"); NL;
+    }
+    kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
+}
+
+/// }}}
 
 // Main entry point {{{
 
 void kmain(void) {
     extern uint32_t magic;
- 
-    // The multiboot header
-    //extern void *mbd;
+    extern multiboot_info_t *mbi; // The multiboot header
+    extern int32 first_memblock;
+
     if (magic != 0x2BADB002)
     {
         kputs("Multiboot magic number mismatch! Freezing.");
         for (;;);
     }
-    // TODO use Multiboot header fields
-    //char *boot_loader_name =(char*) ((long*)mbd)[16];
 
     update_cursorpos_from_vga();
 
     kputs("LapOS v");
     kputd(VERSION_NUMBER);
     kputs("\n\n");
+
+    kputs("Memory size: ");
+    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
+    max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
     mem_mapping mapping[] = {
         {
@@ -409,6 +604,8 @@ void kmain(void) {
     testvideo[0] = 1;
     testvideo = (char *) 0xd0000000;
     testvideo[2] = 2;
+
+    first_header = (memblock_header_t *) &first_memblock;
 }
 
 // }}}
