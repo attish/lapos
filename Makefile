@@ -12,7 +12,7 @@ all: kernel
 run: kernel
 	$(QEMU) -kernel $<
 
-kernel: kernel.o loader.o
+kernel: loader.o kernel.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 kernel.o: kernel.c
