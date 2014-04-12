@@ -18,6 +18,9 @@
 #define PRINTPTR(X) kputs((#X)); kputs(" == "); kputx((int32)(X)); NL; 
 #define IGNORE_UNUSED(X)   (X) = (X);
 
+// Debug paging is left on for now
+#define DEBUG_PAGING
+
 // }}}
 
 // Type definitions {{{
@@ -174,10 +177,12 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // TODO use kmalloc when it is done
     current_pagetable_set = !current_pagetable_set;
 
-    // Debug
-    int32 stat_identity = 0;
-    int32 stat_null = 0;
-    int32 stat_mapped = 0;
+    // Debug counters
+#ifdef DEBUG_PAGING
+    int32 count_identity = 0;
+    int32 count_null = 0;
+    int32 count_mapped = 0;
+#endif
 
     // create generic page directory
     // TODO factor out
@@ -193,7 +198,9 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         page_directory[current_pagetable_set][curr_entry] = pde;
     }
 
+#ifdef DEBUG_PAGING
     kputs("Page directory filled."); NL;
+#endif
     
     int32 memory = 0;
     int32 end;  // The last page to map in this iteration
@@ -207,11 +214,15 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
             int32 pde = (memory & 0xffc00000) >> 22;
             int32 pte = (memory & 0x003ff000) >> 12;
             if (identity) {
-                stat_identity++;
+#ifdef DEBUG_PAGING
+                count_identity++;
+#endif
                 page_tables[current_pagetable_set][pde][pte] =
                     map_page_to_target(memory);
             } else {
-                stat_null++;
+#ifdef DEBUG_PAGING
+                count_null++;
+#endif
                 page_tables[current_pagetable_set][pde][pte] =
                     null_map_page();
             }
@@ -222,7 +233,9 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         while (memory <= curr_mapping->source_end) {
             int32 pde = (memory & 0xffc00000) >> 22;
             int32 pte = (memory & 0x003ff000) >> 12;
-            stat_mapped++;
+#ifdef DEBUG_PAGING
+            count_mapped++;
+#endif
             page_tables[current_pagetable_set][pde][pte] =
                 map_page_to_target(target);
             if (memory == 0xfffff000) break;
@@ -232,19 +245,25 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         if (memory == 0xfffff000) break;
         curr_mapping++;
     }
+#ifdef DEBUG_PAGING
     kputs("Page tables ready."); NL;
-    kputs("Null mappings: "); kputx(stat_null); NL;
-    kputs("Identity mappings: "); kputx(stat_identity); NL;
-    kputs("Specified mappings: "); kputx(stat_mapped); NL;
+    kputs("Null mappings: "); kputx(count_null); NL;
+    kputs("Identity mappings: "); kputx(count_identity); NL;
+    kputs("Specified mappings: "); kputx(count_mapped); NL;
+#endif
 }
 
 void enable_paging() {
+#ifdef DEBUG_PAGING
     kputs("Loading CR3..."); NL;
+#endif
     asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
     unsigned int cr0;
     asm volatile("mov %%cr0, %0": "=b"(cr0));
     cr0 |= 0x80000000;
+#ifdef DEBUG_PAGING
     kputs("Loading CR0..."); NL;
+#endif
     asm volatile("mov %0, %%cr0":: "b"(cr0));
 }
 
@@ -411,12 +430,16 @@ void *kmalloc(unsigned int pages) {
     memblock_header_t *current_header = first_header;
     int32 size;
 
+#ifdef DEBUG_KMALLOC
     kputs("kmalloc() called to allocate: "); kputd(pages); NL;
+#endif
 
     while (current_header) {
         if (current_header->free) {
             size = kmem_block_size(current_header);
+#ifdef DEBUG_KMALLOC
             kputs("Found free block, size: "); kputd(size); NL;
+#endif
             if (pages <= size)
                 break;
         }
@@ -427,15 +450,20 @@ void *kmalloc(unsigned int pages) {
     if (!current_header)
         return NULL;
 
+#ifdef DEBUG_KMALLOC
     kputs("Matching block found. Header at ");
     kputx((int32)current_header); NL;
+#endif
 
     // Is the block size exactly the same as the requested memory?
     // Or one page larger?
 
     if (size - pages <= 1) {
         // If yes, simply mark as used and return
-        kputs("Exact match. Marking block as used and return."); kputx((int32)first_header); NL;
+#ifdef DEBUG_KMALLOC
+        kputs("Exact match. Marking block as used and return.");
+        kputx((int32)first_header); NL;
+#endif
         current_header->free = 0;
         return (void*)((int32)current_header + 4096);
     } else {
@@ -445,16 +473,16 @@ void *kmalloc(unsigned int pages) {
 
         new_header = (memblock_header_t*)((int32)current_header +
                 (pages + 1) * 4096);
+#ifdef DEBUG_KMALLOC
         kputs("Bisecting block. ");
         PRINTPTR(new_header)
+#endif
 
         new_header->next_header = current_header->next_header;
         current_header->next_header = new_header;
         new_header->prev_header = current_header;
         current_header->free = 0;
         new_header->free = 1;
-        //kputs("free_header after creating new block: ");
-        //kputx((int32)first_header); NL;
     }
 
     return (void*)((int32)current_header + 4096);
@@ -617,11 +645,14 @@ void kmain(void) {
     build_pagetables(2, mapping, 1);
     //build_identity_mapping();
     enable_paging();
+#ifdef DEBUG_PAGING
     kputs("Paging enabled.\n");
+
     char *testvideo = (char *) 0xc0000000;
     testvideo[0] = 1;
     testvideo = (char *) 0xd0000000;
     testvideo[2] = 2;
+#endif
 
     first_header = (memblock_header_t *) &first_memblock;
     max_address = (mbi->mem_upper + 1024) * 1024 - 1;
