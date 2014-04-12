@@ -1,6 +1,8 @@
 global loader                           ; making entry point visible to linker
 global magic                            ; we will use this in kmain
 global mbi                              ; we will use this in kmain
+global first_memblock
+global multiboot_header
  
 extern kmain                            ; kmain is defined in kernel.c
  
@@ -16,10 +18,11 @@ CHECKSUM    equ -(MAGIC + FLAGS)        ; checksum required
 section .text
  
 align 4
+multiboot_header:
     dd MAGIC
     dd FLAGS
     dd CHECKSUM
- 
+
 ; reserve initial kernel stack space
 STACKSIZE equ 0x4000                    ; that's 16k.
  
@@ -41,3 +44,12 @@ align 4
 stack: resb STACKSIZE                   ; reserve 16k stack on a doubleword boundary
 magic: resd 1
 mbi:   resd 1
+
+section .memblock
+
+align 4
+first_memblock:
+    dd 0    ; prev_header
+    dd 0    ; next_header
+    dd 1    ; free
+

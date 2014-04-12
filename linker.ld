@@ -19,6 +19,11 @@ SECTIONS
         *(.data)
     }
 
+    .memblock ALIGN (0x1000) :
+    {
+        *(.memblock)
+    }
+
     .bss :
     {
         sbss = .;
@@ -26,4 +31,5 @@ SECTIONS
         *(.bss)
         ebss = .;
     }
+
 }
