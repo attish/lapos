@@ -142,37 +142,6 @@ page_table_entry_t map_page_to_target(int32 target) {
 
 // Function definitions {{{
 
-void build_identity_mapping() {
-    current_pagetable_set = !current_pagetable_set;
-
-    // create generic page directory
-    // TODO factor out
-    int curr_entry;
-    for (curr_entry = 0; curr_entry < 1024; curr_entry++) {
-        page_directory_entry_t pde;
-        pde.value = 0;
-        pde.present = 1;
-        pde.writable = 1;
-        pde.supervisor = 1;
-        int address = (int)&(page_tables[current_pagetable_set][curr_entry]);
-        pde.page_table = address >> 12;
-        page_directory[current_pagetable_set][curr_entry] = pde;
-    }
-
-    kputs("Page directory filled."); NL;
-
-    int page;
-    for (page = 0; page < 1024 * 1024; page++) {
-        int32 memory = page * 4096;
-        int32 pde = (memory & 0xffc00000) >> 22;
-        int32 pte = (memory & 0x003ff000) >> 12;
-        page_tables[current_pagetable_set][pde][pte] =
-            map_page_to_target(memory);
-    }
-
-    kputs("Page tables filled."); NL;
-}
-
 void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // TODO use kmalloc when it is done
     current_pagetable_set = !current_pagetable_set;
@@ -643,7 +612,6 @@ void kmain(void) {
     };
 
     build_pagetables(2, mapping, 1);
-    //build_identity_mapping();
     enable_paging();
 #ifdef DEBUG_PAGING
     kputs("Paging enabled.\n");
