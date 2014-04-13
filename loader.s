@@ -7,13 +7,11 @@ global multiboot_header
 extern kmain                            ; kmain is defined in kernel.c
  
 ; setting up the Multiboot header - see GRUB docs for details
-MODULEALIGN equ  1<<0                   ; align loaded modules on page boundaries
+MODULEALIGN equ  1<<0                   ; align modules on page boundaries
 MEMINFO     equ  1<<1                   ; provide memory map
-FLAGS       equ  MODULEALIGN            ; this is the Multiboot 'flag' field
-    ; The detailed memory map is not needed yet
-    ; (all we need is the size of available memory)
-MAGIC       equ  0x1BADB002             ; 'magic number' lets bootloader find the header
-CHECKSUM    equ -(MAGIC + FLAGS)        ; checksum required
+FLAGS       equ  MODULEALIGN | MEMINFO  ; this is the Multiboot 'flag' field
+MAGIC       equ  0x1BADB002             ; lets bootloader find the header
+CHECKSUM    equ - (MAGIC + FLAGS)       ; checksum required
  
 section .text
  

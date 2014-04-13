@@ -19,17 +19,29 @@
 #define IGNORE_UNUSED(X)   (X) = (X);
 
 // Debug paging is left on for now
-#define DEBUG_PAGING
+//#define DEBUG_PAGING
 
 // }}}
 
 // Type definitions {{{
 
 typedef unsigned int int32;
+typedef unsigned long long int64;
 typedef unsigned int bool;
 typedef unsigned int bit; // for bitfields
 
-typedef struct multiboot_info {
+struct multiboot_mmap_entry {
+    int32 size;
+    int64 addr;
+    int64 len;
+#define MULTIBOOT_MEMORY_AVAILABLE              1
+#define MULTIBOOT_MEMORY_RESERVED               2
+    int32 type;
+} __attribute__((packed));
+
+typedef struct multiboot_mmap_entry multiboot_memory_map_t;
+
+typedef struct {
     unsigned long flags;
     unsigned long mem_lower;
     unsigned long mem_upper;
@@ -37,7 +49,26 @@ typedef struct multiboot_info {
     unsigned long cmdline;
     unsigned long mods_count;
     unsigned long mods_addr;
+    //multiboot_elf_section_header_table_t elf_sec;
+    int32 elf_sec[4];
+    int32 mmap_length;
+    multiboot_memory_map_t *mmap_table;
 } multiboot_info_t;
+
+typedef struct {
+    // From multiboot.h, reformatted and modified
+
+    // the memory used goes from bytes 'mod_start' to 'mod_end-1' inclusive
+    int32 mod_start;
+    int32 mod_end;
+    
+    // Module command line
+    // int32 cmdline;
+    char* cmdline;
+     
+    // padding to take it to 16 bytes (must be zero)
+    int32 padding;
+} multiboot_module_t;
 
 typedef struct {
     int32 source_start;
@@ -94,6 +125,7 @@ struct memblock_header_s {
 void  kputch(char);
 void  kputs(char *);
 void  kputx(unsigned int);
+void  kputxx(unsigned long long);
 void  kputb(unsigned int);
 void  kputd(unsigned int);
 void  kputh(unsigned int);
@@ -353,19 +385,31 @@ void kputh(unsigned int d) {
     kputch(postfix[magnitude]);
 }
 
-void kputx(unsigned int d) {
-    // always 32 bit for now
+void kputx_inner_32(unsigned int d) {
     char *hexdigits = "0123456789abcdef";
     int current = d;
     int count;
-
-    kputs("0x");
 
     for (count = 0; count < 8; count++)
     {
         kputch(hexdigits[(current & 0xf0000000) >> 28]);
         current <<= 4;
     }
+}
+
+void kputx(unsigned int d) {
+    kputs("0x");
+    kputx_inner_32(d);
+}
+
+void kputxx(unsigned long long dd) {
+    // 64 bit
+    kputs("0x");
+
+    int32 d = (int32)(dd >> 32);
+    kputx_inner_32(d);
+    d = (int32)dd;  // truncate to 32 bits
+    kputx_inner_32(d);
 }
 
 void kputb(unsigned int d) {
@@ -578,8 +622,8 @@ void test_kmalloc_3() {
 // Main entry point {{{
 
 void kmain(void) {
-    extern uint32_t magic;
-    extern multiboot_info_t *mbi; // The multiboot header
+    extern int32 magic;
+    extern multiboot_info_t *mbi; // Multiboot information struct
     extern int32 first_memblock;
 
     if (magic != 0x2BADB002)
@@ -628,7 +672,55 @@ void kmain(void) {
     kputs("Kernel memory free: ");
     int freemem = kmem_available();
     kputh(freemem * 4096);
-    kputs(" ("); kputd(freemem); kputs(" pages)"); NL;
+    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
+
+    if (mbi->flags && (1<<6)) {
+        int mmap_len = mbi->mmap_length;
+        int mmap_count;
+        kputs("Size of memory map table: "); kputd(mmap_len); NL;
+
+        multiboot_memory_map_t *mmap_start = 
+            (multiboot_memory_map_t *)mbi->mmap_table;
+        multiboot_memory_map_t *current_mmap = mmap_start;
+
+        //        for (mmap_count = 0; mmap_count < mmap_num;
+        for (mmap_count = 0;
+             (int32)current_mmap < (int32)mmap_start + mmap_len;
+             mmap_count++,
+             current_mmap = (multiboot_memory_map_t *)\
+                                ((int32)current_mmap
+                                    + current_mmap->size
+                                    + sizeof(current_mmap->size))) {
+            kputs("mmap #"); kputd(mmap_count);
+            kputs(" addr: "); kputxx(current_mmap->addr);
+            kputs(" len: "); kputxx(current_mmap->len);
+            kputs(" type: ");
+            kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+        }
+        NL;
+
+        // Raw display
+        //int32 *p = (int32 *)mmap_start;
+        //int c;
+        //for (c=0; c<30; c++) {
+        //    kputx(*p); kputs(" "); p++;
+        //    if (c % 4 == 3) NL;
+        //}
+    }
+
+    int module_num = mbi->mods_count;
+    kputs("Number of modules: "); kputd(module_num); NL;
+
+    int module_count;
+    multiboot_module_t *current_module = (multiboot_module_t *)mbi->mods_addr;
+    for (module_count = 0; module_count < module_num;
+            module_count++, current_module++) {
+        kputs("Module #"); kputd(module_count);
+        kputs(" start: "); kputx(current_module->mod_start);
+        kputs(" end: "); kputx(current_module->mod_end);
+        kputs(" size: "); kputh(current_module->mod_end-current_module->mod_start);
+        kputs(" text: "); kputs(current_module->cmdline); NL;
+    }
 }
 
 // }}}
