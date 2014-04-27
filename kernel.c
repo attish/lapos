@@ -15,11 +15,16 @@
 #define NL kputch('\n')
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
 #define PRINTD(X)   kputs((#X)); kputs(" == "); kputd((X)); NL; 
+#define PRINTH(X)   kputs((#X)); kputs(" == "); kputh((X)); NL; 
 #define PRINTPTR(X) kputs((#X)); kputs(" == "); kputx((int32)(X)); NL; 
 #define IGNORE_UNUSED(X)   (X) = (X);
+#define MIN(X,Y)    ((((X))<((Y)))?((X)):((Y)))
+#define MAX(X,Y)    ((((X))>((Y)))?((X)):((Y)))
+#define NEXT_PAGE(X)       (((X) & 0xfffff000) + 0x1000)
+#define PREV_PAGE(X)       (((X) & 0xfffff000) - 0x1000)
 
-// Debug paging is left on for now
 //#define DEBUG_PAGING
+//#define DEBUG_MODULES_ALLOC
 
 // }}}
 
@@ -502,6 +507,7 @@ void *kmalloc(unsigned int pages) {
 }
 
 int kfree(void *memory) {
+    // TODO validate pointer, ie. is really used? magic num. later?
     // First, we need a pointer to the header
     memblock_header_t *header = memory - 4096;
 
@@ -555,6 +561,17 @@ int kmem_available() {
     }
 
     return count;
+}
+
+void mark_heap_start_used_until(int32 used_end) {
+    memblock_header_t *free_space = \
+        (memblock_header_t *)NEXT_PAGE(used_end);
+    first_header->free = 0;
+    first_header->next_header = free_space;
+    free_space->free = 1;
+    free_space->prev_header = first_header;
+    free_space->next_header = NULL;
+
 }
 
 // }}}
@@ -640,7 +657,6 @@ void kmain(void) {
 
     kputs("Memory size: ");
     kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
-    max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
     mem_mapping mapping[] = {
         {
@@ -667,12 +683,6 @@ void kmain(void) {
 #endif
 
     first_header = (memblock_header_t *) &first_memblock;
-    max_address = (mbi->mem_upper + 1024) * 1024 - 1;
-
-    kputs("Kernel memory free: ");
-    int freemem = kmem_available();
-    kputh(freemem * 4096);
-    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 
     if (mbi->flags && (1<<6)) {
         int mmap_len = mbi->mmap_length;
@@ -683,44 +693,188 @@ void kmain(void) {
             (multiboot_memory_map_t *)mbi->mmap_table;
         multiboot_memory_map_t *current_mmap = mmap_start;
 
-        //        for (mmap_count = 0; mmap_count < mmap_num;
+        // Get end of memory from the memory map
+        // (and not from the Multiboot header)
         for (mmap_count = 0;
              (int32)current_mmap < (int32)mmap_start + mmap_len;
              mmap_count++,
+
              current_mmap = (multiboot_memory_map_t *)\
                                 ((int32)current_mmap
                                     + current_mmap->size
                                     + sizeof(current_mmap->size))) {
-            kputs("mmap #"); kputd(mmap_count);
-            kputs(" addr: "); kputxx(current_mmap->addr);
-            kputs(" len: "); kputxx(current_mmap->len);
-            kputs(" type: ");
-            kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+            // kputs("mmap #"); kputd(mmap_count);
+            // kputs(" addr: "); kputxx(current_mmap->addr);
+            // kputs(" len: "); kputxx(current_mmap->len);
+            // kputs(" type: ");
+            // kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+
+            int32 last_address = current_mmap->addr + current_mmap->len - 1;
+            if (current_mmap->type == 1 && last_address > max_address)
+                max_address = last_address;
         }
         NL;
-
-        // Raw display
-        //int32 *p = (int32 *)mmap_start;
-        //int c;
-        //for (c=0; c<30; c++) {
-        //    kputx(*p); kputs(" "); p++;
-        //    if (c % 4 == 3) NL;
-        //}
-    }
+    } else
+        // Fall back if no memory map was given
+        max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
     int module_num = mbi->mods_count;
-    kputs("Number of modules: "); kputd(module_num); NL;
+    int32 module_table_start = mbi->mods_addr;
+    multiboot_module_t *mods = (multiboot_module_t *)module_table_start;
+    int32 module_table_end = (int32)(mods + module_num) - 1;
 
-    int module_count;
-    multiboot_module_t *current_module = (multiboot_module_t *)mbi->mods_addr;
-    for (module_count = 0; module_count < module_num;
-            module_count++, current_module++) {
-        kputs("Module #"); kputd(module_count);
-        kputs(" start: "); kputx(current_module->mod_start);
-        kputs(" end: "); kputx(current_module->mod_end);
-        kputs(" size: "); kputh(current_module->mod_end-current_module->mod_start);
-        kputs(" text: "); kputs(current_module->cmdline); NL;
+    int32 modules_start = mods[0].mod_start;
+    int32 modules_end = mods[module_num - 1].mod_end;
+    int32 heap_start = (int32)first_header;
+    //int32 after_modules = (mods[module_num - 1].mod_end & 0xfffff000) + 4096;
+    NL;
+
+    if (module_num == 0) goto no_modules;
+
+    // TODO All this is interesting only if there are modules at all.
+    // Otherwise all upper mem is ours, and nothing will disturb us, so later
+    // include a big 'if' here. Or, maybe, a goto. Just this once...
+
+#ifdef DEBUG_MODULES_ALLOC
+    kputs("Header of first block: "); kputx(heap_start); NL;
+    kputs("Start of module table: "); kputx(module_table_start); NL;
+    kputs("End of module table:   "); kputx(module_table_end); NL;
+    kputs("Start of modules:      "); kputx(modules_start); NL;
+    kputs("End of modules:        "); kputx(modules_end); NL;
+    NL;
+#endif
+
+    int32 used_start_1 = MIN(module_table_start, modules_start);
+    int32 used_start_2 = MAX(module_table_start, modules_start);
+    int32 used_end_1 = MIN(module_table_end, modules_end);
+    int32 used_end_2 = MAX(module_table_end, modules_end);
+
+#ifdef DEBUG_MODULES_ALLOC
+    kputs("First block starts: "); kputx(used_start_1); NL;
+    kputs("First block ends: "); kputx(used_end_1); NL;
+    kputs("Second block starts: "); kputx(used_start_2); NL;
+    kputs("Second block ends: "); kputx(used_end_2); NL;
+#endif
+
+    bool ignore_block_1 = (used_end_1 < heap_start);
+    bool ignore_block_2 = (used_end_2 < heap_start);
+    bool free_mem_before_1 = ignore_block_1 ? 0 : \
+        ((used_start_1 - heap_start) > 0x2000);
+    // TODO this badly needs a comment
+    bool free_mem_before_2 = ignore_block_2 ? 0 : \
+        ((used_start_2 - (ignore_block_1?heap_start:used_end_1)) > 0x2000);
+#ifdef DEBUG_MODULES_ALLOC
+    kputs("Is free mem before first table? "); kputd(free_mem_before_1); NL;
+    kputs("Is free mem between tables? "); kputd(free_mem_before_2); NL;
+    kputs("Is first block ignored? "); kputd(ignore_block_1); NL;
+    kputs("Is second block ignored? "); kputd(ignore_block_2); NL;
+#endif
+
+    // Cases:
+    // 1. Both tables are below kernel and ignored.
+    // 2. Only the first table is below kernel and ignored.
+    //    2.a The second table comes right after the first memblock header,
+    //        so it can be used to mark the table, and another one to mark
+    //        the free space.
+    //    2.b There is free space between the first memblock header and the
+    //        second table. This will be marked by the first memblock, and the
+    //        second will mark the table. A third will mark the free mem.
+    // 3. Both tables are after the kernel.
+    //    3.a The first table comes right after the first memblock header, and
+    //        the second table comes right after the first one. The two blocks
+    //        are marked together with the first memblock, and a new one is
+    //        used for free mem.
+    //    3.b The first table comes after the memblock header, but there is
+    //        free memory between the two blocks. Use first header for first
+    //        block, and add new ones for the free block, the second block and
+    //        the free mem.
+    //    3.c There is free memory before the first block, but not between the
+    //        two blocks. We use the first block to mark the free memory, then
+    //        create another one for the two consecutive blocks together, and
+    //        one for the free mem.
+    //    3.d There is free memory both before and after the blocks. This is
+    //        the most complicated case.
+    //
+    // I have no better idea ATM than to code for these cases individually.
+    // The real ugly part will be that long and convoluted 'if' structure.
+
+    // TODO I am lazy. Therefore I only implement those situations which
+    // actually occur via using either GRUB's or QEMU's Multiboot
+    // functionality. If a loader is used that works differently, the symptom
+    // will most probably will be the kernel failing to find the modules.
+    // In all other cases, fall back to the safest option,
+    // which is:
+    // - in case 2.b: ignore the free space, and handle it as 2.a
+    // - in case 3.[bcd]: simply mark everything up to used_end_2 as used in
+    // the first header, and create another one to mark the free mem. This is
+    // again the same as 2.a
+    
+    if (ignore_block_1 && ignore_block_2) {
+        // Case 1: GRUB does this without modules
+        // This is NOP -- all mem is ours.
+    } else if (ignore_block_1) {
+        // Case 2
+        if (!free_mem_before_2) {
+            // Case 2.a: GRUB does this with modules
+#ifdef DEBUG_MODULES_ALLOC
+            kputs("I think this is GRUB!"); NL;
+#endif
+            mark_heap_start_used_until(used_end_2);
+        } else {
+            // Case 2.b
+            kputs("Warning: unexpected Multiboot layout, using fallback.");
+            mark_heap_start_used_until(used_end_2);
+        }
+    } else {
+        // Case 3
+        // The code is the same as with GRUB!
+        if (!free_mem_before_1 && !free_mem_before_2) {
+            // Case 3.a: this is what QEMU does ATM
+#ifdef DEBUG_MODULES_ALLOC
+            kputs("I think this is QEMU!"); NL;
+#endif
+            memblock_header_t *free_space = \
+                (memblock_header_t *)NEXT_PAGE(used_end_2);
+            first_header->free = 0;
+            first_header->next_header = free_space;
+            free_space->free = 1;
+            free_space->prev_header = first_header;
+            free_space->next_header = NULL;
+        } else if (!free_mem_before_1 && free_mem_before_2) {
+            // Case 3.b
+            kputs("Warning: unexpected Multiboot layout, using fallback.");
+            mark_heap_start_used_until(used_end_2);
+        } else if (free_mem_before_1 && !free_mem_before_2) {
+            // Case 3.c
+            kputs("Warning: unexpected Multiboot layout, using fallback.");
+            mark_heap_start_used_until(used_end_2);
+        } else if (free_mem_before_1 && free_mem_before_2) {
+            // Case 3.d
+            kputs("Warning: unexpected Multiboot layout, using fallback.");
+            mark_heap_start_used_until(used_end_2);
+        }
     }
+
+#ifdef DEBUG_MODULES_ALLOC
+    // Print the module table
+
+    kputs("Number of modules: "); kputd(module_num); NL;
+    int n_mod;
+    for (n_mod = 0; n_mod < module_num; n_mod++) {
+        kputs("Module #"); kputd(n_mod);
+        kputs(" start: "); kputx(mods[n_mod].mod_start);
+        kputs(" end: "); kputx(mods[n_mod].mod_end);
+        kputs(" size: "); kputh(mods[n_mod].mod_end-mods[n_mod].mod_start);
+        kputs(" text: "); kputs(mods[n_mod].cmdline); NL;
+    }
+#endif
+
+no_modules:
+    walk_heap(first_header);
+    kputs("Kernel memory free: ");
+    int freemem = kmem_available();
+    kputh(freemem * 4096);
+    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 }
 
 // }}}

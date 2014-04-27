@@ -6,12 +6,15 @@ CFLAGS=-Wall -Wextra -Werror -nostdlib \
 LD=ld
 LDFLAGS=-T linker.ld
 QEMU=qemu-system-i386
-MODULES=kernel.c,loader.s
+MODULES=kernel.c,loader.s,Makefile
 
 all: kernel
 
 run: kernel
 	$(QEMU) -initrd $(MODULES) -kernel $<
+
+run-nomodules: kernel
+	$(QEMU) -kernel $<
 
 kernel: loader.o kernel.o
 	$(LD) $(LDFLAGS) -o $@ $^
