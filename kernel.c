@@ -587,12 +587,18 @@ void mark_heap_start_used_until(int32 used_end) {
 }
 
 void mark_modules_as_used() {
+    // Multiboot gives us two data blocks that we need to exclude from the
+    // heap. The specification does not state that these would have to be
+    // contiguous, so we have to arrange for the exclusion separately. Also,
+    // it is not stated which of them would be the first (though I guess few
+    // bootloaders would place the table after the modules themselves).
+
 #ifdef DEBUG_MODULES_ALLOC
     kputs("Header of first block: "); kputx(heap_start); NL;
-    kputs("Start of module table: "); kputx(module_table_start); NL;
-    kputs("End of module table:   "); kputx(module_table_end); NL;
-    kputs("Start of modules:      "); kputx(modules_start); NL;
-    kputs("End of modules:        "); kputx(modules_end); NL;
+    kputs("Module table: "); kputx(module_table_start);
+    kputs(".."); kputx(module_table_end); NL;
+    kputs("Modules: "); kputx(modules_start);
+    kputs(".."); kputx(modules_end); NL;
     NL;
 #endif
 
@@ -602,10 +608,10 @@ void mark_modules_as_used() {
     int32 used_end_2 = MAX(module_table_end, modules_end);
 
 #ifdef DEBUG_MODULES_ALLOC
-    kputs("First block starts: "); kputx(used_start_1); NL;
-    kputs("First block ends: "); kputx(used_end_1); NL;
-    kputs("Second block starts: "); kputx(used_start_2); NL;
-    kputs("Second block ends: "); kputx(used_end_2); NL;
+    kputs("First block: "); kputx(used_start_1);
+    kputs(".."); kputx(used_end_1); NL;
+    kputs("Second block: "); kputx(used_start_2);
+    kputs(".."); kputx(used_end_2); NL;
 #endif
 
     bool ignore_block_1 = (used_end_1 < heap_start);
@@ -618,8 +624,8 @@ void mark_modules_as_used() {
 #ifdef DEBUG_MODULES_ALLOC
     kputs("Is free mem before first table? "); kputd(free_mem_before_1); NL;
     kputs("Is free mem between tables? "); kputd(free_mem_before_2); NL;
-    kputs("Is first block ignored? "); kputd(ignore_block_1); NL;
-    kputs("Is second block ignored? "); kputd(ignore_block_2); NL;
+    kputs("Is first block before heap start? "); kputd(ignore_block_1); NL;
+    kputs("Is second block before heap start? "); kputd(ignore_block_2); NL;
 #endif
 
     // Cases:
