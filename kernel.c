@@ -24,7 +24,7 @@
 #define PREV_PAGE(X)       (((X) & 0xfffff000) - 0x1000)
 
 //#define DEBUG_PAGING
-//#define DEBUG_MODULES_ALLOC
+#define DEBUG_MODULES_ALLOC
 
 // }}}
 
@@ -73,7 +73,7 @@ typedef struct {
      
     // padding to take it to 16 bytes (must be zero)
     int32 padding;
-} multiboot_module_t;
+} multiboot_module_table_t;
 
 typedef struct {
     int32 source_start;
@@ -174,6 +174,18 @@ page_table_entry_t map_page_to_target(int32 target) {
     pte.page_address = target >> 12;
     return pte;
 }
+
+int mmap_len;
+int mmap_count;
+multiboot_memory_map_t *mmap_start;
+multiboot_memory_map_t *current_mmap;
+multiboot_module_table_t *mods;
+int module_num;
+int32 module_table_start;
+int32 module_table_end;
+int32 modules_start;
+int32 modules_end;
+int32 heap_start;
 
 // }}}
 
@@ -574,167 +586,7 @@ void mark_heap_start_used_until(int32 used_end) {
 
 }
 
-// }}}
-
-// Tests {{{
-
-void test_kmalloc_1() {
-    kputs("Heap before allocation"); NL; walk_heap(first_header);
-    PRINT((int32)first_header)
-
-    kputs("Allocating blocks"); NL;
-    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
-    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
-    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
-    kputs("Heap after allocation"); NL; walk_heap(first_header);
-    kfree(m2);
-    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
-    kfree(m1);
-    kputs("Heap after freeing 1"); NL; walk_heap(first_header);
-    kfree(m3);
-    kputs("Heap after freeing 3"); NL; walk_heap(first_header);
-}
-
-void test_kmalloc_2() {
-    kputs("Heap before allocation"); NL; walk_heap(first_header);
-    PRINT((int32)first_header)
-
-    kputs("Allocating blocks"); NL;
-    int *m0 = kmalloc(1); IGNORE_UNUSED(m0);
-    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
-    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
-    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
-    int *m4 = kmalloc(15); IGNORE_UNUSED(m4);
-    int *m5 = kmalloc(15); IGNORE_UNUSED(m5);
-    int *m6 = kmalloc(15); IGNORE_UNUSED(m6);
-    kputs("Heap after initial allocation"); NL; walk_heap(first_header);
-    kfree(m2);
-    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
-    kfree(m4);
-    kfree(m5);
-    kputs("Heap after freeing 4&5"); NL; walk_heap(first_header);
-    int *m7 = kmalloc(19); IGNORE_UNUSED(m7);
-    kputs("Heap after allocating 19 blocks"); NL; walk_heap(first_header);
-    int *m8 = kmalloc(8); IGNORE_UNUSED(m8);
-    int *m9 = kmalloc(8); IGNORE_UNUSED(m9);
-    kputs("Heap after allocating 2*8 blocks"); NL; walk_heap(first_header);
-    int *m10 = kmalloc(16); IGNORE_UNUSED(m10);
-    kputs("Heap after allocating 16 blocks"); NL; walk_heap(first_header);
-}
-
-void test_kmalloc_3() {
-    kputs("Heap before allocation"); NL; walk_heap(first_header);
-    PRINT((int32)first_header)
-
-    kputs("Allocating blocks"); NL;
-    int *m0 = kmalloc(32505); IGNORE_UNUSED(m0);
-    if (!m0) {
-        kputs("Out of memory"); NL;
-    }
-    kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
-}
-
-/// }}}
-
-// Main entry point {{{
-
-void kmain(void) {
-    extern int32 magic;
-    extern multiboot_info_t *mbi; // Multiboot information struct
-    extern int32 first_memblock;
-
-    if (magic != 0x2BADB002)
-    {
-        kputs("Multiboot magic number mismatch! Freezing.");
-        for (;;);
-    }
-
-    update_cursorpos_from_vga();
-
-    kputs("LapOS v");
-    kputd(VERSION_NUMBER);
-    kputs("\n\n");
-
-    kputs("Memory size: ");
-    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
-
-    mem_mapping mapping[] = {
-        {
-            0xc0000000,
-            0xc0001000,
-            0x000b8000
-        },
-        {
-            0xd0000000,
-            0xd0001000,
-            0x000b8000
-        }
-    };
-
-    build_pagetables(2, mapping, 1);
-    enable_paging();
-#ifdef DEBUG_PAGING
-    kputs("Paging enabled.\n");
-
-    char *testvideo = (char *) 0xc0000000;
-    testvideo[0] = 1;
-    testvideo = (char *) 0xd0000000;
-    testvideo[2] = 2;
-#endif
-
-    first_header = (memblock_header_t *) &first_memblock;
-
-    if (mbi->flags && (1<<6)) {
-        int mmap_len = mbi->mmap_length;
-        int mmap_count;
-        kputs("Size of memory map table: "); kputd(mmap_len); NL;
-
-        multiboot_memory_map_t *mmap_start = 
-            (multiboot_memory_map_t *)mbi->mmap_table;
-        multiboot_memory_map_t *current_mmap = mmap_start;
-
-        // Get end of memory from the memory map
-        // (and not from the Multiboot header)
-        for (mmap_count = 0;
-             (int32)current_mmap < (int32)mmap_start + mmap_len;
-             mmap_count++,
-
-             current_mmap = (multiboot_memory_map_t *)\
-                                ((int32)current_mmap
-                                    + current_mmap->size
-                                    + sizeof(current_mmap->size))) {
-            // kputs("mmap #"); kputd(mmap_count);
-            // kputs(" addr: "); kputxx(current_mmap->addr);
-            // kputs(" len: "); kputxx(current_mmap->len);
-            // kputs(" type: ");
-            // kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
-
-            int32 last_address = current_mmap->addr + current_mmap->len - 1;
-            if (current_mmap->type == 1 && last_address > max_address)
-                max_address = last_address;
-        }
-        NL;
-    } else
-        // Fall back if no memory map was given
-        max_address = (mbi->mem_upper + 1024) * 1024 - 1;
-
-    int module_num = mbi->mods_count;
-    int32 module_table_start = mbi->mods_addr;
-    multiboot_module_t *mods = (multiboot_module_t *)module_table_start;
-    int32 module_table_end = (int32)(mods + module_num) - 1;
-
-    int32 modules_start = mods[0].mod_start;
-    int32 modules_end = mods[module_num - 1].mod_end;
-    int32 heap_start = (int32)first_header;
-    //int32 after_modules = (mods[module_num - 1].mod_end & 0xfffff000) + 4096;
-    NL;
-
-    if (module_num == 0) goto no_modules;
-
-    // TODO All this is interesting only if there are modules at all.
-    // Otherwise all upper mem is ours, and nothing will disturb us, so later
-    // include a big 'if' here. Or, maybe, a goto. Just this once...
-
+void mark_modules_as_used() {
 #ifdef DEBUG_MODULES_ALLOC
     kputs("Header of first block: "); kputx(heap_start); NL;
     kputs("Start of module table: "); kputx(module_table_start); NL;
@@ -869,9 +721,169 @@ void kmain(void) {
     }
 #endif
 
-no_modules:
+}
+
+// }}}
+
+// Tests {{{
+
+void test_kmalloc_1() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
+    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
+    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
+    kputs("Heap after allocation"); NL; walk_heap(first_header);
+    kfree(m2);
+    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
+    kfree(m1);
+    kputs("Heap after freeing 1"); NL; walk_heap(first_header);
+    kfree(m3);
+    kputs("Heap after freeing 3"); NL; walk_heap(first_header);
+}
+
+void test_kmalloc_2() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m0 = kmalloc(1); IGNORE_UNUSED(m0);
+    int *m1 = kmalloc(15); IGNORE_UNUSED(m1);
+    int *m2 = kmalloc(15); IGNORE_UNUSED(m2);
+    int *m3 = kmalloc(15); IGNORE_UNUSED(m3);
+    int *m4 = kmalloc(15); IGNORE_UNUSED(m4);
+    int *m5 = kmalloc(15); IGNORE_UNUSED(m5);
+    int *m6 = kmalloc(15); IGNORE_UNUSED(m6);
+    kputs("Heap after initial allocation"); NL; walk_heap(first_header);
+    kfree(m2);
+    kputs("Heap after freeing 2"); NL; walk_heap(first_header);
+    kfree(m4);
+    kfree(m5);
+    kputs("Heap after freeing 4&5"); NL; walk_heap(first_header);
+    int *m7 = kmalloc(19); IGNORE_UNUSED(m7);
+    kputs("Heap after allocating 19 blocks"); NL; walk_heap(first_header);
+    int *m8 = kmalloc(8); IGNORE_UNUSED(m8);
+    int *m9 = kmalloc(8); IGNORE_UNUSED(m9);
+    kputs("Heap after allocating 2*8 blocks"); NL; walk_heap(first_header);
+    int *m10 = kmalloc(16); IGNORE_UNUSED(m10);
+    kputs("Heap after allocating 16 blocks"); NL; walk_heap(first_header);
+}
+
+void test_kmalloc_3() {
+    kputs("Heap before allocation"); NL; walk_heap(first_header);
+    PRINT((int32)first_header)
+
+    kputs("Allocating blocks"); NL;
+    int *m0 = kmalloc(32505); IGNORE_UNUSED(m0);
+    if (!m0) {
+        kputs("Out of memory"); NL;
+    }
+    kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
+}
+
+/// }}}
+
+// Main entry point {{{
+
+void kmain(void) {
+    extern int32 magic;
+    extern multiboot_info_t *mbi; // Multiboot information struct
+    extern int32 first_memblock;
+
+    if (magic != 0x2BADB002)
+    {
+        kputs("Multiboot magic number mismatch! Freezing.");
+        for (;;);
+    }
+
+    update_cursorpos_from_vga();
+
+    kputs("LapOS v");
+    kputd(VERSION_NUMBER);
+    kputs("\n\n");
+
+    kputs("Memory size: ");
+    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
+
+    mem_mapping mapping[] = {
+        {
+            0xc0000000,
+            0xc0001000,
+            0x000b8000
+        },
+        {
+            0xd0000000,
+            0xd0001000,
+            0x000b8000
+        }
+    };
+
+    build_pagetables(2, mapping, 1);
+    enable_paging();
+#ifdef DEBUG_PAGING
+    kputs("Paging enabled.\n");
+
+    char *testvideo = (char *) 0xc0000000;
+    testvideo[0] = 1;
+    testvideo = (char *) 0xd0000000;
+    testvideo[2] = 2;
+#endif
+
+    first_header = (memblock_header_t *) &first_memblock;
+
+    if (mbi->flags && (1<<6)) {
+        mmap_len = mbi->mmap_length;
+        kputs("Size of memory map table: "); kputd(mmap_len); NL;
+
+        mmap_start = (multiboot_memory_map_t *)mbi->mmap_table;
+        current_mmap = mmap_start;
+
+        // Get end of memory from the memory map
+        // (and not from the Multiboot header)
+        for (mmap_count = 0;
+             (int32)current_mmap < (int32)mmap_start + mmap_len;
+             mmap_count++,
+
+             current_mmap = (multiboot_memory_map_t *)\
+                                ((int32)current_mmap
+                                    + current_mmap->size
+                                    + sizeof(current_mmap->size))) {
+            // kputs("mmap #"); kputd(mmap_count);
+            // kputs(" addr: "); kputxx(current_mmap->addr);
+            // kputs(" len: "); kputxx(current_mmap->len);
+            // kputs(" type: ");
+            // kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+
+            int32 last_address = current_mmap->addr + current_mmap->len - 1;
+            if (current_mmap->type == 1 && last_address > max_address)
+                max_address = last_address;
+        }
+        NL;
+    } else
+        // Fall back if no memory map was given
+        max_address = (mbi->mem_upper + 1024) * 1024 - 1;
+
+#ifdef DEBUG_MODULES_ALLOC
+    if (mbi->flags && (1<<3)) kputs("Received valid module table!"); NL;
+#endif
+    module_num = mbi->mods_count;
+    module_table_start = mbi->mods_addr;
+    mods = (multiboot_module_table_t *)module_table_start;
+    module_table_end = (int32)(mods + module_num) - 1;
+
+    modules_start = mods[0].mod_start;
+    modules_end = mods[module_num - 1].mod_end;
+    heap_start = (int32)first_header;
+    //int32 after_modules = (
+    //    (mods[module_num - 1].mod_end & 0xfffff000) + 4096);
+
+    // If there are modules, exclude the memory occupied by them from
+    if (module_num != 0) mark_modules_as_used();
+
     walk_heap(first_header);
-    kputs("Kernel memory free: ");
+    NL; kputs("Kernel memory free: ");
     int freemem = kmem_available();
     kputh(freemem * 4096);
     kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
