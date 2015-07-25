@@ -143,6 +143,10 @@ int   kmem_available();
 
 // Global variables {{{
 
+// TODO Page tables should be dynamically allocated to match the size of
+// available memory. Using 8M of memory is a waste, but for now, we can live
+// with it.
+
 int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
@@ -893,6 +897,13 @@ void kmain(void) {
     int freemem = kmem_available();
     kputh(freemem * 4096);
     kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
+
+    // Run module
+    if (module_num != 0) {
+        void (*module_entry)() = (void(*)()) modules_start;
+        module_entry();
+    } else
+        kputs("No module loaded, kernel halts.");
 }
 
 // }}}
