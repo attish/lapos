@@ -23,8 +23,8 @@
 #define NEXT_PAGE(X)       (((X) & 0xfffff000) + 0x1000)
 #define PREV_PAGE(X)       (((X) & 0xfffff000) - 0x1000)
 
-//#define DEBUG_PAGING
-#define DEBUG_MODULES_ALLOC
+#define DEBUG_PAGING
+//#define DEBUG_MODULES_ALLOC
 
 // }}}
 
@@ -196,6 +196,8 @@ int32 heap_start;
 // Function definitions {{{
 
 void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
+    // FIXME Mappings starting at address 0 do not work!
+
     // TODO use kmalloc when it is done
     current_pagetable_set = !current_pagetable_set;
 
@@ -287,6 +289,13 @@ void enable_paging() {
     kputs("Loading CR0..."); NL;
 #endif
     asm volatile("mov %0, %%cr0":: "b"(cr0));
+}
+
+void reload_pagetable() {
+#ifdef DEBUG_PAGING
+    kputs("Loading CR3..."); NL;
+#endif
+    asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
 }
 
 void outb(unsigned short int port, char data) {
@@ -898,9 +907,36 @@ void kmain(void) {
     kputh(freemem * 4096);
     kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 
-    // Run module
+    // Map module and vmem to higher half
+    mem_mapping module_mapping[] = {
+        {
+            0x00001000,
+            0x10000000,
+            0x00001000
+        },
+        {
+            0x80000000,
+            0x90000000,
+            modules_start
+        },
+        {
+            0xf0000000,
+            0xf0001000,
+            0x000b8000
+        },
+    };
+
+    build_pagetables(3, module_mapping, 0);
+    //for(;;);
+    reload_pagetable();
+#ifdef DEBUG_PAGING
+    char *test2 = (char *) 0xf0000000;
+    test2[0] = 1;
+#endif
+
+    // Transfer control to module at new address
     if (module_num != 0) {
-        void (*module_entry)() = (void(*)()) modules_start;
+        void (*module_entry)() = (void(*)()) 0x80000000;
         module_entry();
     } else
         kputs("No module loaded, kernel halts.");
