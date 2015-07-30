@@ -1,11 +1,8 @@
 bits 32
-org 0x80000000
+global mod_entry
+extern modmain
 
 mod_entry:
     mov eax, 0xf0000004
     mov ebx, 0
-display_loop:
-    mov [eax], bl
-    inc bl
-    jmp display_loop
-    hlt
+    jmp modmain
