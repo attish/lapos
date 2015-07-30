@@ -147,9 +147,8 @@ int   kmem_available();
 // available memory. Using 8M of memory is a waste, but for now, we can live
 // with it.
 
-int current_pagetable_set = 1;
-page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
-page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
+page_directory_entry_t __attribute__((aligned(4096))) page_directory[1024];
+page_table_entry_t __attribute__((aligned(4096))) page_tables[1024][1024];
 
 memblock_header_t *first_header;
 unsigned int max_address = 0;   // This is the address of the last
@@ -199,7 +198,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // FIXME Mappings starting at address 0 do not work!
 
     // TODO use kmalloc when it is done
-    current_pagetable_set = !current_pagetable_set;
+    ///current_pagetable_set = !current_pagetable_set;
 
     // Debug counters
 #ifdef DEBUG_PAGING
@@ -217,9 +216,9 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         pde.present = 1;
         pde.writable = 1;
         pde.supervisor = 1;
-        int address = (int)&(page_tables[current_pagetable_set][curr_entry]);
+        int address = (int)&(page_tables[curr_entry]);
         pde.page_table = address >> 12;
-        page_directory[current_pagetable_set][curr_entry] = pde;
+        page_directory[curr_entry] = pde;
     }
 
 #ifdef DEBUG_PAGING
@@ -241,13 +240,13 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
                 count_identity++;
 #endif
-                page_tables[current_pagetable_set][pde][pte] =
+                page_tables[pde][pte] =
                     map_page_to_target(memory);
             } else {
 #ifdef DEBUG_PAGING
                 count_null++;
 #endif
-                page_tables[current_pagetable_set][pde][pte] =
+                page_tables[pde][pte] =
                     null_map_page();
             }
             if (memory == 0xfffff000) break;
@@ -260,7 +259,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
             count_mapped++;
 #endif
-            page_tables[current_pagetable_set][pde][pte] =
+            page_tables[pde][pte] =
                 map_page_to_target(target);
             if (memory == 0xfffff000) break;
             memory += 4096;
@@ -281,7 +280,7 @@ void enable_paging() {
 #ifdef DEBUG_PAGING
     kputs("Loading CR3..."); NL;
 #endif
-    asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
+    asm volatile("mov %0, %%cr3":: "b"(page_directory));
     unsigned int cr0;
     asm volatile("mov %%cr0, %0": "=b"(cr0));
     cr0 |= 0x80000000;
@@ -295,7 +294,7 @@ void reload_pagetable() {
 #ifdef DEBUG_PAGING
     kputs("Loading CR3..."); NL;
 #endif
-    asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
+    asm volatile("mov %0, %%cr3":: "b"(page_directory));
 }
 
 void outb(unsigned short int port, char data) {
