@@ -148,7 +148,7 @@ int   kmem_available();
 // with it.
 
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[1024];
-page_table_entry_t __attribute__((aligned(4096))) page_tables[1024][1024];
+page_table_entry_t *page_table;
 
 memblock_header_t *first_header;
 unsigned int max_address = 0;   // This is the address of the last
@@ -197,9 +197,6 @@ int32 heap_start;
 void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // FIXME Mappings starting at address 0 do not work!
 
-    // TODO use kmalloc when it is done
-    ///current_pagetable_set = !current_pagetable_set;
-
     // Debug counters
 #ifdef DEBUG_PAGING
     int32 count_identity = 0;
@@ -216,7 +213,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         pde.present = 1;
         pde.writable = 1;
         pde.supervisor = 1;
-        int address = (int)&(page_tables[curr_entry]);
+        int address = (int)(page_table + curr_entry * 1024);
         pde.page_table = address >> 12;
         page_directory[curr_entry] = pde;
     }
@@ -240,13 +237,13 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
                 count_identity++;
 #endif
-                page_tables[pde][pte] =
+                page_table[pde * 1024 + pte] =
                     map_page_to_target(memory);
             } else {
 #ifdef DEBUG_PAGING
                 count_null++;
 #endif
-                page_tables[pde][pte] =
+                page_table[pde * 1024 + pte] =
                     null_map_page();
             }
             if (memory == 0xfffff000) break;
@@ -259,7 +256,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
             count_mapped++;
 #endif
-            page_tables[pde][pte] =
+            page_table[pde * 1024 + pte] =
                 map_page_to_target(target);
             if (memory == 0xfffff000) break;
             memory += 4096;
@@ -825,7 +822,7 @@ void kmain(void) {
     kputs("Memory size: ");
     kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
 
-    mem_mapping mapping[] = {
+/*    mem_mapping mapping[] = {
         {
             0xc0000000,
             0xc0001000,
@@ -847,7 +844,7 @@ void kmain(void) {
     testvideo[0] = 1;
     testvideo = (char *) 0xd0000000;
     testvideo[2] = 2;
-#endif
+#endif*/
 
     first_header = (memblock_header_t *) &first_memblock;
 
@@ -906,6 +903,9 @@ void kmain(void) {
     kputh(freemem * 4096);
     kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 
+    // Reserve page table on the heap
+    page_table = kmalloc(max_address / 4096 / 1024 + 1);
+
     // Map module and vmem to higher half
     mem_mapping module_mapping[] = {
         {
@@ -927,7 +927,8 @@ void kmain(void) {
 
     build_pagetables(3, module_mapping, 0);
     //for(;;);
-    reload_pagetable();
+    //reload_pagetable();
+    enable_paging();
 #ifdef DEBUG_PAGING
     char *test2 = (char *) 0xf0000000;
     test2[0] = 1;
