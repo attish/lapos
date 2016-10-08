@@ -3,12 +3,12 @@
 // Includes {{{
 
 #include <stdint.h>
+#include "version.h"
 
 // }}}
 
 // Constants and macros {{{
 
-#define VERSION_NUMBER 0x0
 #define NULL (void *) 0x0
 #define VGA_COLS 80
 #define VGA_ROWS 25
@@ -815,8 +815,10 @@ void kmain(void) {
 
     update_cursorpos_from_vga();
 
-    kputs("LapOS v");
-    kputd(VERSION_NUMBER);
+    kputs("LapOS ");
+    kputs(VERSION_ID);
+    kputs(", branch ");
+    kputs(VERSION_BRANCH);
     kputs("\n\n");
 
     kputs("Memory size: ");
