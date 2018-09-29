@@ -30,6 +30,8 @@
 
 // Type definitions {{{
 
+typedef unsigned char int8;
+typedef unsigned short int int16;
 typedef unsigned int int32;
 typedef unsigned long long int64;
 typedef unsigned int bool;
@@ -115,6 +117,30 @@ typedef union {
     int32 value;
 } page_table_entry_t;
 
+typedef union {
+	struct {
+		bit present: 1;
+        bit privilege_level: 2;
+		bit storage: 1;
+		bit gate_type: 4;
+	};
+	int8 value;
+} idt_entry_type_attr_t;
+
+typedef struct {
+	int16 offset_low;
+	int16 css;
+	int8  unused;
+	idt_entry_type_attr_t type_attrib;
+	int16 offset_hi;
+} idt_entry_t;
+
+typedef struct {
+	int16 size;
+	int16 unused;
+	int32 offset;
+} idtr_t;
+
 typedef struct memblock_header_s memblock_header_t;
 
 struct memblock_header_s {
@@ -151,7 +177,11 @@ int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
 
+idtr_t idtr;
+idt_entry_t *idt;
+
 memblock_header_t *first_header;
+
 unsigned int max_address = 0;   // This is the address of the last
                                 // valid byte of memory
 
@@ -884,6 +914,7 @@ void kmain(void) {
         // Fall back if no memory map was given
         max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
+
 #ifdef DEBUG_MODULES_ALLOC
     if (mbi->flags && (1<<3)) kputs("Received valid module table!"); NL;
 #endif
@@ -933,6 +964,12 @@ void kmain(void) {
     char *test2 = (char *) 0xf0000000;
     test2[0] = 1;
 #endif
+
+	// Allocate IDT
+    idt = kmalloc(8 * 256); IGNORE_UNUSED(idt);
+    NL; kputs("Kernel memory after IDT allocation: ");
+    kputh(kmem_available() * 4096);
+    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 
     // Transfer control to module at new address
     if (module_num != 0) {
