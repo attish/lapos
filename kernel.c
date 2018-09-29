@@ -932,11 +932,19 @@ void kmain(void) {
     // If there are modules, exclude the memory occupied by them from
     if (module_num != 0) mark_modules_as_used();
 
-    walk_heap(first_header);
     NL; kputs("Kernel memory free: ");
-    int freemem = kmem_available();
-    kputh(freemem * 4096);
-    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
+    kputh(kmem_available() * 4096);
+    kputs(" ("); kputd(kmem_available()); kputs(" pages)"); NL; NL;
+
+	// Allocate IDT
+    // 1 block is enough, since IDT is 2k (256 entries, 8 bytes each)
+    kputs("Setting up IDT..."); NL;
+    idt = kmalloc(1); IGNORE_UNUSED(idt);
+
+    // TODO - Add ISR (use module as ISR?)
+    //      - Set up IDT entry
+    //      - Initialize PIC
+    //      - STI instruction
 
     // Map module and vmem to higher half
     mem_mapping module_mapping[] = {
@@ -964,12 +972,6 @@ void kmain(void) {
     char *test2 = (char *) 0xf0000000;
     test2[0] = 1;
 #endif
-
-	// Allocate IDT
-    idt = kmalloc(8 * 256); IGNORE_UNUSED(idt);
-    NL; kputs("Kernel memory after IDT allocation: ");
-    kputh(kmem_available() * 4096);
-    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
 
     // Transfer control to module at new address
     if (module_num != 0) {
