@@ -840,6 +840,7 @@ void kmain(void) {
     extern int32 magic;
     extern multiboot_info_t *mbi; // Multiboot information struct
     extern int32 first_memblock;
+    extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
 
     if (magic != 0x2BADB002)
     {
@@ -852,6 +853,9 @@ void kmain(void) {
     kputs("LapOS v");
     kputd(VERSION_NUMBER);
     kputs("\n\n");
+
+    // kputx(entry_eip);
+    // for(;;);
 
     kputs("Memory size: ");
     kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
