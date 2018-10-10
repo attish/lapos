@@ -15,6 +15,7 @@ MAGIC       equ  0x1BADB002             ; lets bootloader find the header
 CHECKSUM    equ - (MAGIC + FLAGS)       ; checksum required
 GDT_BASE    equ  0x400                 ; GDT is placed right above real mode int table
 GDTR_BASE   equ  0x500
+IDT_BASE    equ  0x0
  
 section .text
  
@@ -66,9 +67,16 @@ new_gdt:
     mov fs, ax
     mov gs, ax
     mov ss, ax
-    mov al, 2
+    mov al, 3
     mov [0xb8000], al
-;    hlt
+
+    mov edi, GDTR_BASE                  ; re-use GDTR as IDTR
+    mov eax, 256*8                      ; 256*8
+    stosw
+    mov eax, IDT_BASE
+    stosd
+
+    lidt [GDTR_BASE]
 
     call kmain                          ; call kernel proper
  

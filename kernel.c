@@ -14,6 +14,7 @@
 #define VGA_ROWS 25
 #define NL kputch('\n')
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
+#define PRINTXX(X)  kputs((#X)); kputs(" == "); kputxx((X)); NL; 
 #define PRINTD(X)   kputs((#X)); kputs(" == "); kputd((X)); NL; 
 #define PRINTH(X)   kputs((#X)); kputs(" == "); kputh((X)); NL; 
 #define PRINTPTR(X) kputs((#X)); kputs(" == "); kputx((int32)(X)); NL; 
@@ -118,27 +119,41 @@ typedef union {
 } page_table_entry_t;
 
 typedef union {
-	struct {
-		bit present: 1;
+    struct {
+        int16 offset_low: 16;
+        int16 css: 16;
+        int8  :8;
+        bit gate_type: 4;
+        bit storage: 1;
         bit privilege_level: 2;
-		bit storage: 1;
-		bit gate_type: 4;
-	};
-	int8 value;
+        bit present: 1;
+        int16 offset_hi: 16;
+    };
+    int64 value;
+} idt_entry_t;
+
+/*typedef union {
+    struct {
+        bit present: 1;
+        bit privilege_level: 2;
+        bit storage: 1;
+        bit gate_type: 4;
+    };
+    int8 value;
 } idt_entry_type_attr_t;
 
 typedef struct {
-	int16 offset_low;
-	int16 css;
-	int8  unused;
-	idt_entry_type_attr_t type_attrib;
-	int16 offset_hi;
-} idt_entry_t;
+    int16 offset_low;
+    int16 css;
+    int8  unused;
+    idt_entry_type_attr_t type_attrib;
+    int16 offset_hi;
+} idt_entry_t;*/
 
 typedef struct {
-	int16 size;
-	int16 unused;
-	int32 offset;
+    int16 size;
+    int16 unused;
+    int32 offset;
 } idtr_t;
 
 typedef struct memblock_header_s memblock_header_t;
@@ -164,6 +179,7 @@ void *kmalloc(unsigned int);
 int   kfree(void *);
 void  walk_heap(memblock_header_t *);
 int   kmem_available();
+void  make_idt_entry(unsigned int, void *);
 
 // }}}
 
@@ -177,8 +193,7 @@ int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
 
-idtr_t idtr;
-idt_entry_t *idt;
+idt_entry_t *idt = (idt_entry_t *)0x0;
 
 memblock_header_t *first_header;
 
@@ -772,6 +787,26 @@ void mark_modules_as_used() {
 
 }
 
+void make_idt_entry(unsigned int index, void *isr) {
+    idt_entry_t *entry = idt + index;
+
+    entry->value = 0;
+    int16 isr_low =  ((int32) isr) & 0xffff;
+    int16 isr_high = ((int32) isr) >> 16;
+
+    PRINT((int32) isr);
+    PRINT(isr_low);
+    PRINT(isr_high);
+
+    entry->offset_low = isr_low;
+    entry->offset_hi = isr_high;
+    entry->css = 0x8;
+    entry->present = 1;
+    entry->privilege_level = 0;
+    entry->storage = 0;
+    entry->gate_type = 0xe; // 32-bit interrupt gate
+}
+
 // }}}
 
 // Tests {{{
@@ -830,6 +865,16 @@ void test_kmalloc_3() {
         kputs("Out of memory"); NL;
     }
     kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
+}
+
+void test_isr() {
+    //int8 *vmem = (int8 *)0xb8000;
+    //vmem[0] = 4;
+    kputs("Test ISR ok."); NL;
+    //for(;;);
+    // TODO for some reason, IRET crashes, simple C return is OK
+    // Something weird is going on with the stack
+    //asm volatile("iret");
 }
 
 /// }}}
@@ -940,15 +985,25 @@ void kmain(void) {
     kputh(kmem_available() * 4096);
     kputs(" ("); kputd(kmem_available()); kputs(" pages)"); NL; NL;
 
-	// Allocate IDT
+    // NOTE: IDT is no longer allocated on kernel heap, it will reside at the
+    // beginning of RAM like in real mode.
+    // Allocate IDT
     // 1 block is enough, since IDT is 2k (256 entries, 8 bytes each)
-    kputs("Setting up IDT..."); NL;
-    idt = kmalloc(1); IGNORE_UNUSED(idt);
+    /*kputs("Setting up IDT..."); NL;
+    idt = kmalloc(1); IGNORE_UNUSED(idt);*/
 
     // TODO - Add ISR (use module as ISR?)
     //      - Set up IDT entry
     //      - Initialize PIC
     //      - STI instruction
+
+    make_idt_entry(0, (void *)test_isr);
+    kputs("IDT entry set up."); NL;
+#ifdef DEBUG_IDT
+    PRINTXX(idt[0].value);
+    asm volatile("int $0");
+    //for(;;);
+#endif
 
     // Map module and vmem to higher half
     mem_mapping module_mapping[] = {
