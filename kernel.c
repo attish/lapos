@@ -15,6 +15,7 @@
 #define NL kputch('\n')
 #define HALT while(1)
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
+#define PRINTXX(X)  kputs((#X)); kputs(" == "); kputxx((X)); NL; 
 #define PRINTD(X)   kputs((#X)); kputs(" == "); kputd((X)); NL; 
 #define PRINTH(X)   kputs((#X)); kputs(" == "); kputh((X)); NL; 
 #define PRINTPTR(X) kputs((#X)); kputs(" == "); kputx((int32)(X)); NL; 
@@ -31,6 +32,8 @@
 
 // Type definitions {{{
 
+typedef unsigned char int8;
+typedef unsigned short int int16;
 typedef unsigned int int32;
 typedef unsigned long long int64;
 typedef unsigned int bool;
@@ -116,6 +119,44 @@ typedef union {
     int32 value;
 } page_table_entry_t;
 
+typedef union {
+    struct {
+        int16 offset_low: 16;
+        int16 css: 16;
+        int8  :8;
+        bit gate_type: 4;
+        bit storage: 1;
+        bit privilege_level: 2;
+        bit present: 1;
+        int16 offset_hi: 16;
+    };
+    int64 value;
+} idt_entry_t;
+
+/*typedef union {
+    struct {
+        bit present: 1;
+        bit privilege_level: 2;
+        bit storage: 1;
+        bit gate_type: 4;
+    };
+    int8 value;
+} idt_entry_type_attr_t;
+
+typedef struct {
+    int16 offset_low;
+    int16 css;
+    int8  unused;
+    idt_entry_type_attr_t type_attrib;
+    int16 offset_hi;
+} idt_entry_t;*/
+
+typedef struct {
+    int16 size;
+    int16 unused;
+    int32 offset;
+} idtr_t;
+
 typedef struct memblock_header_s memblock_header_t;
 
 struct memblock_header_s {
@@ -139,6 +180,7 @@ void *kmalloc(unsigned int);
 int   kfree(void *);
 void  walk_heap(memblock_header_t *);
 int   kmem_available();
+void  make_idt_entry(unsigned int, void *);
 
 // }}}
 
@@ -152,7 +194,10 @@ int current_pagetable_set = 1;
 page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
 page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
 
+idt_entry_t *idt = (idt_entry_t *)0x0;
+
 memblock_header_t *first_header;
+
 unsigned int max_address = 0;   // This is the address of the last
                                 // valid byte of memory
 
@@ -743,6 +788,26 @@ void mark_modules_as_used() {
 
 }
 
+void make_idt_entry(unsigned int index, void *isr) {
+    idt_entry_t *entry = idt + index;
+
+    entry->value = 0;
+    int16 isr_low =  ((int32) isr) & 0xffff;
+    int16 isr_high = ((int32) isr) >> 16;
+
+    PRINT((int32) isr);
+    PRINT(isr_low);
+    PRINT(isr_high);
+
+    entry->offset_low = isr_low;
+    entry->offset_hi = isr_high;
+    entry->css = 0x8;
+    entry->present = 1;
+    entry->privilege_level = 0;
+    entry->storage = 0;
+    entry->gate_type = 0xe; // 32-bit interrupt gate
+}
+
 // }}}
 
 // Tests {{{
@@ -803,6 +868,16 @@ void test_kmalloc_3() {
     kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
 }
 
+void test_isr() {
+    //int8 *vmem = (int8 *)0xb8000;
+    //vmem[0] = 4;
+    kputs("Test ISR ok."); NL;
+    //for(;;);
+    // TODO for some reason, IRET crashes, simple C return is OK
+    // Something weird is going on with the stack
+    //asm volatile("iret");
+}
+
 /// }}}
 
 // Main entry point {{{
@@ -811,6 +886,7 @@ void kmain(void) {
     extern int32 magic;
     extern multiboot_info_t *mbi; // Multiboot information struct
     extern int32 first_memblock;
+    extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
 
     if (magic != 0x2BADB002)
     {
@@ -823,6 +899,9 @@ void kmain(void) {
     kputs("LapOS v");
     kputd(VERSION_NUMBER);
     kputs("\n\n");
+
+    // kputx(entry_eip);
+    // for(;;);
 
     kputs("Memory size: ");
     kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
@@ -885,6 +964,7 @@ void kmain(void) {
         // Fall back if no memory map was given
         max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
+
 #ifdef DEBUG_MODULES_ALLOC
     if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
 #endif
@@ -906,11 +986,29 @@ void kmain(void) {
     // If there are modules, exclude the memory occupied by them from
     if (module_num != 0) mark_modules_as_used();
 
-    walk_heap(first_header);
     NL; kputs("Kernel memory free: ");
-    int freemem = kmem_available();
-    kputh(freemem * 4096);
-    kputs(" ("); kputd(freemem); kputs(" pages)"); NL; NL;
+    kputh(kmem_available() * 4096);
+    kputs(" ("); kputd(kmem_available()); kputs(" pages)"); NL; NL;
+
+    // NOTE: IDT is no longer allocated on kernel heap, it will reside at the
+    // beginning of RAM like in real mode.
+    // Allocate IDT
+    // 1 block is enough, since IDT is 2k (256 entries, 8 bytes each)
+    /*kputs("Setting up IDT..."); NL;
+    idt = kmalloc(1); IGNORE_UNUSED(idt);*/
+
+    // TODO - Add ISR (use module as ISR?)
+    //      - Set up IDT entry
+    //      - Initialize PIC
+    //      - STI instruction
+
+    make_idt_entry(0, (void *)test_isr);
+    kputs("IDT entry set up."); NL;
+#ifdef DEBUG_IDT
+    PRINTXX(idt[0].value);
+    asm volatile("int $0");
+    //for(;;);
+#endif
 
     // Map module and vmem to higher half
     mem_mapping module_mapping[] = {
