@@ -13,6 +13,7 @@
 #define VGA_COLS 80
 #define VGA_ROWS 25
 #define NL kputch('\n')
+#define HALT while(1)
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
 #define PRINTD(X)   kputs((#X)); kputs(" == "); kputd((X)); NL; 
 #define PRINTH(X)   kputs((#X)); kputs(" == "); kputh((X)); NL; 
@@ -852,7 +853,7 @@ void kmain(void) {
 
     first_header = (memblock_header_t *) &first_memblock;
 
-    if (mbi->flags && (1<<6)) {
+    if (mbi->flags & (1<<6)) {
         mmap_len = mbi->mmap_length;
         kputs("Size of memory map table: "); kputd(mmap_len); NL;
 
@@ -885,15 +886,19 @@ void kmain(void) {
         max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
 #ifdef DEBUG_MODULES_ALLOC
-    if (mbi->flags && (1<<3)) kputs("Received valid module table!"); NL;
+    if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
 #endif
-    module_num = mbi->mods_count;
-    module_table_start = mbi->mods_addr;
-    mods = (multiboot_module_table_t *)module_table_start;
-    module_table_end = (int32)(mods + module_num) - 1;
+	if (mbi->flags & (1<<3) && mbi->mods_count) {
+		module_num = mbi->mods_count;
+		module_table_start = mbi->mods_addr;
+		mods = (multiboot_module_table_t *)module_table_start;
+		module_table_end = (int32)(mods + module_num) - 1;
 
-    modules_start = mods[0].mod_start;
-    modules_end = mods[module_num - 1].mod_end;
+		modules_start = mods[0].mod_start;
+		modules_end = mods[module_num - 1].mod_end;
+	} else
+		module_num = 0;
+	
     heap_start = (int32)first_header;
     //int32 after_modules = (
     //    (mods[module_num - 1].mod_end & 0xfffff000) + 4096);
