@@ -40,9 +40,10 @@
 #define PREV_PAGE(X)       (((X) & 0xfffff000) - 0x1000)
 
 /* Compile switches */
-#define DEBUG_PAGING
-#define DEBUG_IDT
+//#define DEBUG_PAGING
+//#define DEBUG_IDT
 //#define DEBUG_MODULES_ALLOC
+//#define DEBUG_MMAP
 
 // }}}
 
@@ -148,24 +149,6 @@ typedef union {
     };
     int64 value;
 } idt_entry_t;
-
-/*typedef union {
-    struct {
-        bit present: 1;
-        bit privilege_level: 2;
-        bit storage: 1;
-        bit gate_type: 4;
-    };
-    int8 value;
-} idt_entry_type_attr_t;
-
-typedef struct {
-    int16 offset_low;
-    int16 css;
-    int8  unused;
-    idt_entry_type_attr_t type_attrib;
-    int16 offset_hi;
-} idt_entry_t;*/
 
 typedef struct {
     int16 size;
@@ -369,6 +352,7 @@ unsigned char inb(unsigned short int port) {
     return ret;
 }
 
+/*
 void update_cursorpos_to_vga() {
     unsigned short int port = 0x3D4;
     unsigned char data = 0x0E;
@@ -384,6 +368,15 @@ void update_cursorpos_to_vga() {
     data = position & 0xFF;
     outb(port, data);
 }
+*/
+
+void update_cursorpos_to_vga() {
+    unsigned int position = cursor_y * 80 + cursor_x;
+    outb(0x3d4, 0x0e);
+    outb(0x3d5, (position >> 8) & 0xff);
+    outb(0x3d5, position & 0xff);
+}
+
 
 void update_cursorpos_from_vga() {
     unsigned short int offset;
@@ -856,6 +849,34 @@ void initialize_pic() {
 
 // Tests {{{
 
+void paging_early_test() {
+
+    /* This is preserved here because it is the first test that showed that
+     * paging is working, and that was the initial goal of the project.
+     */
+    mem_mapping mapping[] = {
+        {
+            0xc0000000,
+            0xc0001000,
+            0x000b8000
+        },
+        {
+            0xd0000000,
+            0xd0001000,
+            0x000b8000
+        }
+    };
+
+    build_pagetables(2, mapping, 1);
+    enable_paging();
+    kputs("Paging enabled.\n");
+
+    char *testvideo = (char *) 0xc0000000;
+    testvideo[0] = 1;
+    testvideo = (char *) 0xd0000000;
+    testvideo[2] = 2;
+}
+
 void test_kmalloc_1() {
     kputs("Heap before allocation"); NL; walk_heap(first_header);
     PRINT((int32)first_header)
@@ -924,9 +945,6 @@ void test_isr() {
     //kputs("Test ISR ok."); NL;
     outb(0x20, 0x20);
     //kputs("IRQ accepted, return."); NL;
-    // TODO for some reason, IRET crashes, simple C return is OK
-    // Something weird is going on with the stack
-    //asm volatile("iret");
 }
 
 /// }}}
@@ -934,92 +952,68 @@ void test_isr() {
 // Main entry point {{{
 
 void kmain(void) {
-    extern int32 magic;
-    extern multiboot_info_t *mbi; // Multiboot information struct
-    extern int32 first_memblock;
-    extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
+	extern int32 magic;
+	extern multiboot_info_t *mbi; // Multiboot information struct
+	extern int32 first_memblock;
+	extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
 
-    if (magic != 0x2BADB002)
-    {
-        kputs("Multiboot magic number mismatch! Freezing.");
-        for (;;);
-    }
+	if (magic != 0x2BADB002)
+	{
+		kputs("Multiboot magic number mismatch! Freezing.");
+		for (;;);
+	}
 
-    update_cursorpos_from_vga();
+	update_cursorpos_from_vga();
 
-    kputs("LapOS ");
-    kputs(VERSION_ID);
-    kputs(", branch ");
-    kputs(VERSION_BRANCH);
-    kputs("\n\n");
+	kputs("LapOS ");
+	kputs(VERSION_ID);
+	kputs(", branch ");
+	kputs(VERSION_BRANCH);
+	kputs("\n\n");
 
-    // kputx(entry_eip);
-    // for(;;);
+	kputs("Memory size: ");
+	kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
 
-    kputs("Memory size: ");
-    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
+	// paging_early_test(); HALT;
+	first_header = (memblock_header_t *) &first_memblock;
 
-/*    mem_mapping mapping[] = {
-        {
-            0xc0000000,
-            0xc0001000,
-            0x000b8000
-        },
-        {
-            0xd0000000,
-            0xd0001000,
-            0x000b8000
-        }
-    };
+	if (mbi->flags & (1<<6)) {
+		mmap_len = mbi->mmap_length;
+		kputs("Size of memory map table: "); kputd(mmap_len); NL;
 
-    build_pagetables(2, mapping, 1);
-    enable_paging();
-#ifdef DEBUG_PAGING
-    kputs("Paging enabled.\n");
+		mmap_start = (multiboot_memory_map_t *)mbi->mmap_table;
+		current_mmap = mmap_start;
 
-    char *testvideo = (char *) 0xc0000000;
-    testvideo[0] = 1;
-    testvideo = (char *) 0xd0000000;
-    testvideo[2] = 2;
-#endif*/
+		// Get end of memory from the memory map
+		// (and not from the Multiboot header)
+		for (mmap_count = 0;
+				(int32)current_mmap < (int32)mmap_start + mmap_len;
+				mmap_count++,
 
-    first_header = (memblock_header_t *) &first_memblock;
+				current_mmap = (multiboot_memory_map_t *)\
+				((int32)current_mmap
+				 + current_mmap->size
+				 + sizeof(current_mmap->size))) {
+#ifdef DEBUG_MMAP
+			kputs("mmap #"); kputd(mmap_count);
+			kputs(" addr: "); kputxx(current_mmap->addr);
+			kputs(" len: "); kputxx(current_mmap->len);
+			kputs(" type: ");
+			kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+#endif
 
-    if (mbi->flags & (1<<6)) {
-        mmap_len = mbi->mmap_length;
-        kputs("Size of memory map table: "); kputd(mmap_len); NL;
-
-        mmap_start = (multiboot_memory_map_t *)mbi->mmap_table;
-        current_mmap = mmap_start;
-
-        // Get end of memory from the memory map
-        // (and not from the Multiboot header)
-        for (mmap_count = 0;
-             (int32)current_mmap < (int32)mmap_start + mmap_len;
-             mmap_count++,
-
-             current_mmap = (multiboot_memory_map_t *)\
-                                ((int32)current_mmap
-                                    + current_mmap->size
-                                    + sizeof(current_mmap->size))) {
-            // kputs("mmap #"); kputd(mmap_count);
-            // kputs(" addr: "); kputxx(current_mmap->addr);
-            // kputs(" len: "); kputxx(current_mmap->len);
-            // kputs(" type: ");
-            // kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
-
-            int32 last_address = current_mmap->addr + current_mmap->len - 1;
-            if (current_mmap->type == 1 && last_address > max_address)
-                max_address = last_address;
-        }
-        NL;
-    } else
-        // Fall back if no memory map was given
-        max_address = (mbi->mem_upper + 1024) * 1024 - 1;
+			int32 last_address = current_mmap->addr + current_mmap->len - 1;
+			if (current_mmap->type == 1 && last_address > max_address)
+				max_address = last_address;
+		}
+		NL;
+	} else
+		// Fall back if no memory map was given
+		max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
 
 #ifdef DEBUG_MODULES_ALLOC
-    if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
+	if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
 #endif
 	if (mbi->flags & (1<<3) && mbi->mods_count) {
 		module_num = mbi->mods_count;
@@ -1045,33 +1039,28 @@ void kmain(void) {
 
     // NOTE: IDT is no longer allocated on kernel heap, it will reside at the
     // beginning of RAM like in real mode.
+    // TODO consider allocating IDT on the kernel heap later
     // Allocate IDT
     // 1 block is enough, since IDT is 2k (256 entries, 8 bytes each)
     /*kputs("Setting up IDT..."); NL;
     idt = kmalloc(1); IGNORE_UNUSED(idt);*/
 
-    // TODO - Add ISR (use module as ISR?)
-    //      - Set up IDT entry
-    //      - Initialize PIC
-    //      - STI instruction
-
+    // Set up IDT entries
     make_idt_entry(0x0d, (void *)gpf_handler);
-    //make_idt_entry(0x20, (void *)test_isr);
     make_idt_entry(0x20, (void *)testisr_c);
     make_idt_entry(0x21, (void *)testisr_asm);
-    //make_idt_entry(0x21, (void *)test_isr);
-    //for (int n=0;n<256;n++)
-    //    make_idt_entry(n, (void *)test_isr);
-    kputs("IDT entry set up."); NL;
 #ifdef DEBUG_IDT
+    kputs("IDT entry set up."); NL;
     PRINTXX(idt[0].value);
+#endif
     //asm volatile("int $0");
     initialize_pic();
+    // Set IRQ masks: enable 0 and 1, disable all else
     outb(0x21, 0xfc);
     outb(0xa1, 0xff);
+    // Enable interrupts
     asm volatile("sti");
     for(;;);
-#endif
 
     // Reserve page table on the heap
     page_table = kmalloc(max_address / 4096 / 1024 + 1);
@@ -1096,8 +1085,6 @@ void kmain(void) {
     };
 
     build_pagetables(3, module_mapping, 0);
-    //for(;;);
-    //reload_pagetable();
     enable_paging();
 #ifdef DEBUG_PAGING
     char *test2 = (char *) 0xf0000000;

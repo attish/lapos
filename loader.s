@@ -16,7 +16,7 @@ MEMINFO     equ  1<<1                   ; provide memory map
 FLAGS       equ  MODULEALIGN | MEMINFO  ; this is the Multiboot 'flag' field
 MAGIC       equ  0x1BADB002             ; lets bootloader find the header
 CHECKSUM    equ - (MAGIC + FLAGS)       ; checksum required
-GDT_BASE    equ  0x400                 ; GDT is placed right above real mode int table
+GDT_BASE    equ  0x400                  ; GDT is placed right above real mode int table
 GDTR_BASE   equ  0x500
 IDT_BASE    equ  0x0
  
@@ -46,11 +46,11 @@ continue:
     mov eax, 0x0                        ; null descriptor
     stosd
     stosd
-    mov eax, 0x0000ffff                  ; code descriptor
+    mov eax, 0x0000ffff                 ; code descriptor
     stosd
     mov eax, 0x00df9b00
     stosd
-    mov eax, 0x0000ffff                  ; data descriptor
+    mov eax, 0x0000ffff                 ; data descriptor
     stosd
     mov eax, 0x00df9300
     stosd
@@ -73,19 +73,19 @@ new_gdt:
     mov al, 3
     mov [0xb8000], al
 
-    mov edi, GDTR_BASE                  ; re-use GDTR as IDTR
-    mov eax, 256*8                      ; 256*8
+    mov edi, GDTR_BASE                 ; re-use GDTR as IDTR
+    mov eax, 256*8                     ; 256*8
     stosw
     mov eax, IDT_BASE
     stosd
 
     lidt [GDTR_BASE]
 
-    call kmain                          ; call kernel proper
+    call kmain                         ; call kernel proper
  
     cli
 .hang:
-    hlt                                 ; halt machine should kernel return
+    hlt                                ; halt machine should kernel return
     jmp  .hang
 
 testisr_asm:
@@ -109,7 +109,7 @@ testisr_c:
 section .bss
  
 align 4
-stack: resb STACKSIZE                   ; reserve 16k stack on a doubleword boundary
+stack: resb STACKSIZE                  ; reserve 16k stack on a doubleword boundary
 magic: resd 1
 mbi:   resd 1
 entry_eip: resd 1
