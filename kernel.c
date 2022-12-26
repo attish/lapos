@@ -377,6 +377,7 @@ void update_cursorpos_to_vga() {
     unsigned int position = cursor_y * 80 + cursor_x;
     outb(0x3d4, 0x0e);
     outb(0x3d5, (position >> 8) & 0xff);
+    outb(0x3d4, 0x0f);
     outb(0x3d5, position & 0xff);
 }
 
