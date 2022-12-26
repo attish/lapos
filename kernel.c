@@ -1,4 +1,4 @@
-// vi:cin:sw=4 ts=4:foldmethod=marker:foldmarker={{{,}}}
+// vi:cin:sw=4:ts=4:et:foldmethod=marker:foldmarker={{{,}}}
 
 // Includes {{{
 
@@ -10,9 +10,21 @@
 
 #define VERSION_NUMBER 0x0
 #define NULL (void *) 0x0
+
+/* Video */
 #define VGA_COLS 80
 #define VGA_ROWS 25
 #define NL kputch('\n')
+
+/* PIC address constants */
+#define PIC1_CMD 0x20
+#define PIC1_DATA 0x21
+#define PIC2_CMD 0xa0
+#define PIC2_DATA 0xa1
+#define PIC1_TARGET_OFFSET 0x20
+#define PIC2_TARGET_OFFSET 0x28
+
+/* Debugging macros */
 #define HALT while(1)
 #define PRINT(X)    kputs((#X)); kputs(" == "); kputx((X)); NL; 
 #define PRINTXX(X)  kputs((#X)); kputs(" == "); kputxx((X)); NL; 
@@ -25,7 +37,9 @@
 #define NEXT_PAGE(X)       (((X) & 0xfffff000) + 0x1000)
 #define PREV_PAGE(X)       (((X) & 0xfffff000) - 0x1000)
 
+/* Compile switches */
 #define DEBUG_PAGING
+#define DEBUG_IDT
 //#define DEBUG_MODULES_ALLOC
 
 // }}}
@@ -181,6 +195,9 @@ int   kfree(void *);
 void  walk_heap(memblock_header_t *);
 int   kmem_available();
 void  make_idt_entry(unsigned int, void *);
+
+void  testisr_asm();
+void  testisr_c();
 
 // }}}
 
@@ -795,9 +812,9 @@ void make_idt_entry(unsigned int index, void *isr) {
     int16 isr_low =  ((int32) isr) & 0xffff;
     int16 isr_high = ((int32) isr) >> 16;
 
-    PRINT((int32) isr);
-    PRINT(isr_low);
-    PRINT(isr_high);
+    //PRINT((int32) isr);
+    //PRINT(isr_low);
+    //PRINT(isr_high);
 
     entry->offset_low = isr_low;
     entry->offset_hi = isr_high;
@@ -806,6 +823,35 @@ void make_idt_entry(unsigned int index, void *isr) {
     entry->privilege_level = 0;
     entry->storage = 0;
     entry->gate_type = 0xe; // 32-bit interrupt gate
+}
+
+void initialize_pic() {
+    outb(PIC1_CMD, 0x11); // initialization
+    outb(PIC2_CMD, 0x11);
+    outb(PIC1_DATA, PIC1_TARGET_OFFSET);
+    outb(PIC2_DATA, PIC2_TARGET_OFFSET);
+    outb(PIC1_DATA, 4);
+    outb(PIC2_DATA, 2);
+    outb(PIC1_DATA, 1);
+    outb(PIC2_DATA, 1);
+
+    //outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
+	//io_wait();
+	//outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
+	//io_wait();
+	//outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
+	//io_wait();
+	//outb(PIC2_DATA, offset2);                 // ICW2: Slave PIC vector offset
+	//io_wait();
+	//outb(PIC1_DATA, 4);                       // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
+	//io_wait();
+	//outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
+	//io_wait();
+ 
+	//outb(PIC1_DATA, ICW4_8086);
+	//io_wait();
+	//outb(PIC2_DATA, ICW4_8086);
+	//io_wait();
 }
 
 // }}}
@@ -868,11 +914,18 @@ void test_kmalloc_3() {
     kputs("Heap after allocating 32505 blocks"); NL; walk_heap(first_header);
 }
 
+void gpf_handler() {
+    asm volatile("cli");
+    kputs("General protection fault."); NL;
+    for(;;);
+}
+
 void test_isr() {
-    //int8 *vmem = (int8 *)0xb8000;
-    //vmem[0] = 4;
-    kputs("Test ISR ok."); NL;
-    //for(;;);
+    int8 *vmem = (int8 *)0xb8000;
+    vmem[8]++;
+    //kputs("Test ISR ok."); NL;
+    outb(0x20, 0x20);
+    //kputs("IRQ accepted, return."); NL;
     // TODO for some reason, IRET crashes, simple C return is OK
     // Something weird is going on with the stack
     //asm volatile("iret");
@@ -1002,12 +1055,22 @@ void kmain(void) {
     //      - Initialize PIC
     //      - STI instruction
 
-    make_idt_entry(0, (void *)test_isr);
+    make_idt_entry(0x0d, (void *)gpf_handler);
+    //make_idt_entry(0x20, (void *)test_isr);
+    make_idt_entry(0x20, (void *)testisr_c);
+    make_idt_entry(0x21, (void *)testisr_asm);
+    //make_idt_entry(0x21, (void *)test_isr);
+    //for (int n=0;n<256;n++)
+    //    make_idt_entry(n, (void *)test_isr);
     kputs("IDT entry set up."); NL;
 #ifdef DEBUG_IDT
     PRINTXX(idt[0].value);
-    asm volatile("int $0");
-    //for(;;);
+    //asm volatile("int $0");
+    initialize_pic();
+    outb(0x21, 0xfc);
+    outb(0xa1, 0xff);
+    asm volatile("sti");
+    for(;;);
 #endif
 
     // Map module and vmem to higher half

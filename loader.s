@@ -4,8 +4,11 @@ global mbi                              ; we will use this in kmain
 global first_memblock
 global multiboot_header
 global entry_eip
+global testisr_asm
+global testisr_c
  
 extern kmain                            ; kmain is defined in kernel.c
+extern test_isr
  
 ; setting up the Multiboot header - see GRUB docs for details
 MODULEALIGN equ  1<<0                   ; align modules on page boundaries
@@ -84,7 +87,25 @@ new_gdt:
 .hang:
     hlt                                 ; halt machine should kernel return
     jmp  .hang
- 
+
+testisr_asm:
+    pushad
+    mov ah, [0xb8010]
+    inc ah
+    mov [0xb8010], ah
+    in al, 0x60
+    mov [0xb8012], al
+    mov al, 0x20
+    out 0x20, al
+    popad
+    iret
+
+testisr_c:
+    pushad
+    call test_isr
+    popad
+    iret
+
 section .bss
  
 align 4
