@@ -2,13 +2,15 @@
 
 // Includes {{{
 
+
 //#include <stdint.h>
+#include "version.h"
+
 
 // }}}
 
 // Constants and macros {{{
 
-#define VERSION_NUMBER 0x0
 #define NULL (void *) 0x0
 
 /* Video */
@@ -207,9 +209,8 @@ void  testisr_c();
 // available memory. Using 8M of memory is a waste, but for now, we can live
 // with it.
 
-int current_pagetable_set = 1;
-page_directory_entry_t __attribute__((aligned(4096))) page_directory[2][1024];
-page_table_entry_t __attribute__((aligned(4096))) page_tables[2][1024][1024];
+page_directory_entry_t __attribute__((aligned(4096))) page_directory[1024];
+page_table_entry_t *page_table;
 
 idt_entry_t *idt = (idt_entry_t *)0x0;
 
@@ -261,9 +262,6 @@ int32 heap_start;
 void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
     // FIXME Mappings starting at address 0 do not work!
 
-    // TODO use kmalloc when it is done
-    current_pagetable_set = !current_pagetable_set;
-
     // Debug counters
 #ifdef DEBUG_PAGING
     int32 count_identity = 0;
@@ -280,9 +278,9 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
         pde.present = 1;
         pde.writable = 1;
         pde.supervisor = 1;
-        int address = (int)&(page_tables[current_pagetable_set][curr_entry]);
+        int address = (int)(page_table + curr_entry * 1024);
         pde.page_table = address >> 12;
-        page_directory[current_pagetable_set][curr_entry] = pde;
+        page_directory[curr_entry] = pde;
     }
 
 #ifdef DEBUG_PAGING
@@ -304,13 +302,13 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
                 count_identity++;
 #endif
-                page_tables[current_pagetable_set][pde][pte] =
+                page_table[pde * 1024 + pte] =
                     map_page_to_target(memory);
             } else {
 #ifdef DEBUG_PAGING
                 count_null++;
 #endif
-                page_tables[current_pagetable_set][pde][pte] =
+                page_table[pde * 1024 + pte] =
                     null_map_page();
             }
             if (memory == 0xfffff000) break;
@@ -323,7 +321,7 @@ void build_pagetables(int32 mapping_count, mem_mapping *map, int identity) {
 #ifdef DEBUG_PAGING
             count_mapped++;
 #endif
-            page_tables[current_pagetable_set][pde][pte] =
+            page_table[pde * 1024 + pte] =
                 map_page_to_target(target);
             if (memory == 0xfffff000) break;
             memory += 4096;
@@ -344,7 +342,7 @@ void enable_paging() {
 #ifdef DEBUG_PAGING
     kputs("Loading CR3..."); NL;
 #endif
-    asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
+    asm volatile("mov %0, %%cr3":: "b"(page_directory));
     unsigned int cr0;
     asm volatile("mov %%cr0, %0": "=b"(cr0));
     cr0 |= 0x80000000;
@@ -358,7 +356,7 @@ void reload_pagetable() {
 #ifdef DEBUG_PAGING
     kputs("Loading CR3..."); NL;
 #endif
-    asm volatile("mov %0, %%cr3":: "b"(page_directory[current_pagetable_set]));
+    asm volatile("mov %0, %%cr3":: "b"(page_directory));
 }
 
 void outb(unsigned short int port, char data) {
@@ -949,8 +947,10 @@ void kmain(void) {
 
     update_cursorpos_from_vga();
 
-    kputs("LapOS v");
-    kputd(VERSION_NUMBER);
+    kputs("LapOS ");
+    kputs(VERSION_ID);
+    kputs(", branch ");
+    kputs(VERSION_BRANCH);
     kputs("\n\n");
 
     // kputx(entry_eip);
@@ -959,7 +959,7 @@ void kmain(void) {
     kputs("Memory size: ");
     kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
 
-    mem_mapping mapping[] = {
+/*    mem_mapping mapping[] = {
         {
             0xc0000000,
             0xc0001000,
@@ -981,7 +981,7 @@ void kmain(void) {
     testvideo[0] = 1;
     testvideo = (char *) 0xd0000000;
     testvideo[2] = 2;
-#endif
+#endif*/
 
     first_header = (memblock_header_t *) &first_memblock;
 
@@ -1073,6 +1073,9 @@ void kmain(void) {
     for(;;);
 #endif
 
+    // Reserve page table on the heap
+    page_table = kmalloc(max_address / 4096 / 1024 + 1);
+
     // Map module and vmem to higher half
     mem_mapping module_mapping[] = {
         {
@@ -1094,7 +1097,8 @@ void kmain(void) {
 
     build_pagetables(3, module_mapping, 0);
     //for(;;);
-    reload_pagetable();
+    //reload_pagetable();
+    enable_paging();
 #ifdef DEBUG_PAGING
     char *test2 = (char *) 0xf0000000;
     test2[0] = 1;

@@ -35,6 +35,8 @@ kernel: loader.o kernel.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 kernel.o: kernel.c
+	echo "#define VERSION_ID \"$(shell git rev-parse HEAD | cut -c 1-6 )\"" > version.h
+	echo "#define VERSION_BRANCH \"$(shell git rev-parse --abbrev-ref HEAD)\"" >> version.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 loader.o: loader.s
