@@ -27,3 +27,6 @@ flag bit 3 can be used to find out if there are any modules loaded
 with the kernel. What is misleading about this is that this approach
 works in QEMU, but must not be relied on.
 
+(Actually while fixing this issue, I found another subtle bug that had
+been lurking around. See commit 26cd57e for details.)
+
