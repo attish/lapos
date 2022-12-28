@@ -6,9 +6,11 @@ global multiboot_header
 global entry_eip
 global testisr_asm
 global testisr_c
+global isr_entry_kbd
  
 extern kmain                            ; kmain is defined in kernel.c
 extern test_isr
+extern isr_keyboard
  
 ; setting up the Multiboot header - see GRUB docs for details
 MODULEALIGN equ  1<<0                   ; align modules on page boundaries
@@ -103,6 +105,12 @@ testisr_asm:
 testisr_c:
     pushad
     call test_isr
+    popad
+    iret
+
+isr_entry_kbd:
+    pushad
+    call isr_keyboard
     popad
     iret
 
