@@ -43,7 +43,7 @@ loader.o: loader.s
 	$(NASM) $(NASMFLAGS) -o $@ $<
 
 clean: FRC
-	rm -f kernel.o loader.o kernel module.o modmain.o module.elf module
+	rm -f kernel.o loader.o kernel module.o modmain.o module.elf module version.h
 
 FRC:
     
