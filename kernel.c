@@ -5,6 +5,7 @@
 
 //#include <stdint.h>
 #include "version.h"
+#include "scancodes.h"
 
 
 // }}}
@@ -200,6 +201,8 @@ void  make_idt_entry(unsigned int, void *);
 
 void  testisr_asm();
 void  testisr_c();
+void  isr_entry_kbd();
+void  isr_keyboard();
 
 // }}}
 
@@ -929,6 +932,16 @@ void test_isr() {
     //asm volatile("iret");
 }
 
+void isr_keyboard() {
+    //int8 scancode = inb(0x60);
+    int8 ascii = scancode_to_ascii[inb(0x60)];
+    if (ascii)
+        kputch(ascii);
+    //kputs("scancode: "); kputd(scancode); NL;
+    //kputch(ascii);
+    outb(0x20, 0x20);
+}
+
 /// }}}
 
 // Main entry point {{{
@@ -1058,20 +1071,18 @@ void kmain(void) {
     make_idt_entry(0x0d, (void *)gpf_handler);
     //make_idt_entry(0x20, (void *)test_isr);
     make_idt_entry(0x20, (void *)testisr_c);
-    make_idt_entry(0x21, (void *)testisr_asm);
-    //make_idt_entry(0x21, (void *)test_isr);
-    //for (int n=0;n<256;n++)
-    //    make_idt_entry(n, (void *)test_isr);
-    kputs("IDT entry set up."); NL;
+    //make_idt_entry(0x21, (void *)testisr_asm);
+    make_idt_entry(0x21, (void *)isr_entry_kbd);
 #ifdef DEBUG_IDT
+    kputs("IDT entry set up."); NL;
     PRINTXX(idt[0].value);
+#endif
     //asm volatile("int $0");
     initialize_pic();
     outb(0x21, 0xfc);
     outb(0xa1, 0xff);
     asm volatile("sti");
     for(;;);
-#endif
 
     // Reserve page table on the heap
     page_table = kmalloc(max_address / 4096 / 1024 + 1);
