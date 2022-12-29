@@ -401,6 +401,13 @@ void update_cursorpos_from_vga() {
     cursor_y = offset / 80;
 }    
 
+void kputch_at_cursor(char ch) {
+    volatile char *videoram = (char *)0xB8000;
+    unsigned int target = cursor_y * 80 + cursor_x;
+    videoram[target << 1] = ch;
+    videoram[(target << 1) + 1] = 0x07;
+}
+
 void kputch(char ch) {
     volatile char *videoram = (char *)0xB8000;
     unsigned int target = cursor_y * 80 + cursor_x;
@@ -933,10 +940,23 @@ void test_isr() {
 }
 
 void isr_keyboard() {
-    //int8 scancode = inb(0x60);
-    int8 ascii = scancode_to_ascii[inb(0x60)];
-    if (ascii)
-        kputch(ascii);
+    int8 scancode = inb(0x60);
+    int8 ascii = scancode_to_ascii[scancode];
+    switch (scancode) {
+        case 14: 
+            kputch_at_cursor(' ');
+            cursor_x--;
+            update_cursorpos_to_vga();
+            break;
+        case 203: 
+            cursor_x--;
+            update_cursorpos_to_vga();
+            break;
+        default:
+            if (ascii)
+                kputch(ascii);
+    }
+
     //kputs("scancode: "); kputd(scancode); NL;
     //kputch(ascii);
     outb(0x20, 0x20);
