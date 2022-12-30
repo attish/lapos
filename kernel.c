@@ -841,22 +841,22 @@ void initialize_pic() {
     outb(PIC2_DATA, 1);
 
     //outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
-	//io_wait();
-	//outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
-	//io_wait();
-	//outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
-	//io_wait();
-	//outb(PIC2_DATA, offset2);                 // ICW2: Slave PIC vector offset
-	//io_wait();
-	//outb(PIC1_DATA, 4);                       // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
-	//io_wait();
-	//outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
-	//io_wait();
+    //io_wait();
+    //outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
+    //io_wait();
+    //outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
+    //io_wait();
+    //outb(PIC2_DATA, offset2);                 // ICW2: Slave PIC vector offset
+    //io_wait();
+    //outb(PIC1_DATA, 4);                       // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
+    //io_wait();
+    //outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
+    //io_wait();
  
-	//outb(PIC1_DATA, ICW4_8086);
-	//io_wait();
-	//outb(PIC2_DATA, ICW4_8086);
-	//io_wait();
+    //outb(PIC1_DATA, ICW4_8086);
+    //io_wait();
+    //outb(PIC2_DATA, ICW4_8086);
+    //io_wait();
 }
 
 // }}}
@@ -980,12 +980,12 @@ void isr_keyboard() {
     // TODO shift keys are better handled separately
     // (now releasing either shift cancels shift state even if the other is
     // still pressed)
-	case 42:
-	case 54:
+    case 42:
+    case 54:
         shift_key_state = 1;
         break;
-	case 170:
-	case 182:
+    case 170:
+    case 182:
         shift_key_state = 0;
         break;
         default:
@@ -1005,80 +1005,80 @@ void isr_keyboard() {
 // Main entry point {{{
 
 void kmain(void) {
-	extern int32 magic;
-	extern multiboot_info_t *mbi; // Multiboot information struct
-	extern int32 first_memblock;
-	extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
+    extern int32 magic;
+    extern multiboot_info_t *mbi; // Multiboot information struct
+    extern int32 first_memblock;
+    extern int32 entry_eip; IGNORE_UNUSED(entry_eip);
 
-	if (magic != 0x2BADB002)
-	{
-		kputs("Multiboot magic number mismatch! Freezing.");
-		for (;;);
-	}
+    if (magic != 0x2BADB002)
+    {
+        kputs("Multiboot magic number mismatch! Freezing.");
+        for (;;);
+    }
 
-	update_cursorpos_from_vga();
+    update_cursorpos_from_vga();
 
-	kputs("LapOS ");
-	kputs(VERSION_ID);
-	kputs(", branch ");
-	kputs(VERSION_BRANCH);
-	kputs("\n\n");
+    kputs("LapOS ");
+    kputs(VERSION_ID);
+    kputs(", branch ");
+    kputs(VERSION_BRANCH);
+    kputs("\n\n");
 
-	kputs("Memory size: ");
-	kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
+    kputs("Memory size: ");
+    kputh((unsigned int) mbi->mem_upper * 1024); NL; NL;
 
-	// paging_early_test(); HALT;
-	first_header = (memblock_header_t *) &first_memblock;
+    // paging_early_test(); HALT;
+    first_header = (memblock_header_t *) &first_memblock;
 
-	if (mbi->flags & (1<<6)) {
-		mmap_len = mbi->mmap_length;
-		kputs("Size of memory map table: "); kputd(mmap_len); NL;
+    if (mbi->flags & (1<<6)) {
+        mmap_len = mbi->mmap_length;
+        kputs("Size of memory map table: "); kputd(mmap_len); NL;
 
-		mmap_start = (multiboot_memory_map_t *)mbi->mmap_table;
-		current_mmap = mmap_start;
+        mmap_start = (multiboot_memory_map_t *)mbi->mmap_table;
+        current_mmap = mmap_start;
 
-		// Get end of memory from the memory map
-		// (and not from the Multiboot header)
-		for (mmap_count = 0;
-				(int32)current_mmap < (int32)mmap_start + mmap_len;
-				mmap_count++,
+        // Get end of memory from the memory map
+        // (and not from the Multiboot header)
+        for (mmap_count = 0;
+                (int32)current_mmap < (int32)mmap_start + mmap_len;
+                mmap_count++,
 
-				current_mmap = (multiboot_memory_map_t *)\
-				((int32)current_mmap
-				 + current_mmap->size
-				 + sizeof(current_mmap->size))) {
+                current_mmap = (multiboot_memory_map_t *)\
+                ((int32)current_mmap
+                 + current_mmap->size
+                 + sizeof(current_mmap->size))) {
 #ifdef DEBUG_MMAP
-			kputs("mmap #"); kputd(mmap_count);
-			kputs(" addr: "); kputxx(current_mmap->addr);
-			kputs(" len: "); kputxx(current_mmap->len);
-			kputs(" type: ");
-			kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
+            kputs("mmap #"); kputd(mmap_count);
+            kputs(" addr: "); kputxx(current_mmap->addr);
+            kputs(" len: "); kputxx(current_mmap->len);
+            kputs(" type: ");
+            kputs(current_mmap->type - 1 ? "reserved" : "available"); NL;
 #endif
 
-			int32 last_address = current_mmap->addr + current_mmap->len - 1;
-			if (current_mmap->type == 1 && last_address > max_address)
-				max_address = last_address;
-		}
-		NL;
-	} else
-		// Fall back if no memory map was given
-		max_address = (mbi->mem_upper + 1024) * 1024 - 1;
+            int32 last_address = current_mmap->addr + current_mmap->len - 1;
+            if (current_mmap->type == 1 && last_address > max_address)
+                max_address = last_address;
+        }
+        NL;
+    } else
+        // Fall back if no memory map was given
+        max_address = (mbi->mem_upper + 1024) * 1024 - 1;
 
 
 #ifdef DEBUG_MODULES_ALLOC
-	if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
+    if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
 #endif
-	if (mbi->flags & (1<<3) && mbi->mods_count) {
-		module_num = mbi->mods_count;
-		module_table_start = mbi->mods_addr;
-		mods = (multiboot_module_table_t *)module_table_start;
-		module_table_end = (int32)(mods + module_num) - 1;
+    if (mbi->flags & (1<<3) && mbi->mods_count) {
+        module_num = mbi->mods_count;
+        module_table_start = mbi->mods_addr;
+        mods = (multiboot_module_table_t *)module_table_start;
+        module_table_end = (int32)(mods + module_num) - 1;
 
-		modules_start = mods[0].mod_start;
-		modules_end = mods[module_num - 1].mod_end;
-	} else
-		module_num = 0;
-	
+        modules_start = mods[0].mod_start;
+        modules_end = mods[module_num - 1].mod_end;
+    } else
+        module_num = 0;
+    
     heap_start = (int32)first_header;
     //int32 after_modules = (
     //    (mods[module_num - 1].mod_end & 0xfffff000) + 4096);
