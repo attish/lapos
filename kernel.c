@@ -26,6 +26,7 @@
 #define PIC2_DATA 0xa1
 #define PIC1_TARGET_OFFSET 0x20
 #define PIC2_TARGET_OFFSET 0x28
+#define EOI outb(0x20, 0x20)
 
 /* Debugging macros */
 #define HALT while(1)
@@ -224,6 +225,8 @@ unsigned int max_address = 0;   // This is the address of the last
 
 unsigned int cursor_x = 0;
 unsigned int cursor_y = 0;
+
+unsigned int shift_key_state = 0;
 
 page_table_entry_t null_map_page() {
     // TODO check page alignment
@@ -941,25 +944,41 @@ void test_isr() {
 
 void isr_keyboard() {
     int8 scancode = inb(0x60);
+    //PRINTD(scancode);
+    //EOI;
+    //return;
     int8 ascii = scancode_to_ascii[scancode];
     switch (scancode) {
         case 14: 
-            kputch_at_cursor(' ');
             cursor_x--;
             update_cursorpos_to_vga();
+            kputch_at_cursor(' ');
             break;
         case 203: 
             cursor_x--;
             update_cursorpos_to_vga();
             break;
+    // TODO shift keys are better handled separately
+    // (now releasing either shift cancels shift state even if the other is
+    // still pressed)
+	case 42:
+	case 54:
+        shift_key_state = 1;
+        break;
+	case 170:
+	case 182:
+        shift_key_state = 0;
+        break;
         default:
-            if (ascii)
-                kputch(ascii);
+            if (!ascii) break;
+            if (ascii >= 'a' && ascii <= 'z' && shift_key_state)
+                ascii -= 32;
+            kputch(ascii);
     }
 
     //kputs("scancode: "); kputd(scancode); NL;
     //kputch(ascii);
-    outb(0x20, 0x20);
+    EOI;
 }
 
 /// }}}
