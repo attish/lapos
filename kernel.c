@@ -847,22 +847,22 @@ void initialize_pic() {
     outb(PIC2_DATA, 1);
 
     //outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
-	//io_wait();
-	//outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
-	//io_wait();
-	//outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
-	//io_wait();
-	//outb(PIC2_DATA, offset2);                 // ICW2: Slave PIC vector offset
-	//io_wait();
-	//outb(PIC1_DATA, 4);                       // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
-	//io_wait();
-	//outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
-	//io_wait();
+    //io_wait();
+    //outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
+    //io_wait();
+    //outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
+    //io_wait();
+    //outb(PIC2_DATA, offset2);                 // ICW2: Slave PIC vector offset
+    //io_wait();
+    //outb(PIC1_DATA, 4);                       // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
+    //io_wait();
+    //outb(PIC2_DATA, 2);                       // ICW3: tell Slave PIC its cascade identity (0000 0010)
+    //io_wait();
  
-	//outb(PIC1_DATA, ICW4_8086);
-	//io_wait();
-	//outb(PIC2_DATA, ICW4_8086);
-	//io_wait();
+    //outb(PIC1_DATA, ICW4_8086);
+    //io_wait();
+    //outb(PIC2_DATA, ICW4_8086);
+    //io_wait();
 }
 
 // }}}
@@ -961,12 +961,12 @@ void isr_keyboard() {
     // TODO shift keys are better handled separately
     // (now releasing either shift cancels shift state even if the other is
     // still pressed)
-	case 42:
-	case 54:
+    case 42:
+    case 54:
         shift_key_state = 1;
         break;
-	case 170:
-	case 182:
+    case 170:
+    case 182:
         shift_key_state = 0;
         break;
         default:
@@ -1073,17 +1073,17 @@ void kmain(void) {
 #ifdef DEBUG_MODULES_ALLOC
     if (mbi->flags & (1<<3)) kputs("Received valid module table!"); NL;
 #endif
-	if (mbi->flags & (1<<3) && mbi->mods_count) {
-		module_num = mbi->mods_count;
-		module_table_start = mbi->mods_addr;
-		mods = (multiboot_module_table_t *)module_table_start;
-		module_table_end = (int32)(mods + module_num) - 1;
+    if (mbi->flags & (1<<3) && mbi->mods_count) {
+        module_num = mbi->mods_count;
+        module_table_start = mbi->mods_addr;
+        mods = (multiboot_module_table_t *)module_table_start;
+        module_table_end = (int32)(mods + module_num) - 1;
 
-		modules_start = mods[0].mod_start;
-		modules_end = mods[module_num - 1].mod_end;
-	} else
-		module_num = 0;
-	
+        modules_start = mods[0].mod_start;
+        modules_end = mods[module_num - 1].mod_end;
+    } else
+        module_num = 0;
+    
     heap_start = (int32)first_header;
     //int32 after_modules = (
     //    (mods[module_num - 1].mod_end & 0xfffff000) + 4096);
